@@ -27,6 +27,25 @@ with your PinePods server URL + username/password — the app exchanges them for
 (`GET /api/data/get_key`) and never stores the password. PinePods instances serve the API
 behind nginx with `Access-Control-Allow-Origin: *`, so the client can be hosted anywhere.
 
+## Deploying
+
+The repo ships a multi-stage `Dockerfile` (Node build → nginx serving `dist/` with SPA
+fallback and correct service-worker cache headers, listening on port 80). No environment
+variables are needed — the PinePods server URL is entered at login.
+
+**Dokploy** (or any Dockerfile-based PaaS): create an Application from this repo/branch,
+build type *Dockerfile*, container port *80*, and attach a domain **with HTTPS enabled** —
+a secure context is required for the service worker, i.e. for everything offline.
+
+**Plain Docker:**
+
+```bash
+docker compose up -d --build   # serves on host port 8090 (see docker-compose.yml)
+```
+
+**No Docker:** `npm ci && npm run build`, then serve `dist/` with the config in
+`deploy/nginx.conf` (SPA fallback + `no-cache` on `index.html`/`sw.js` so updates roll out).
+
 ### Smoke test
 
 ```bash

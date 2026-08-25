@@ -1,0 +1,9 @@
+services:
+  pinepods-client:
+    build: .
+    container_name: pinepods-offline-client
+    restart: unless-stopped
+    ports:
+      # Change the left side to whatever port you want on the host,
+      # or drop `ports` entirely and attach your reverse proxy's network.
+      - "8090:80"
