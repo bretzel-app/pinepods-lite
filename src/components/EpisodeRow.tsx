@@ -245,6 +245,16 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
           >
             <MoreIcon />
           </button>
+          <button
+            className={`icon-btn${localDownload ? ' active' : ''}`}
+            onClick={() => {
+              if (!guardLongPress()) onDownload();
+            }}
+            disabled={downloading}
+            title={localDownload ? 'Remove download' : 'Download episode'}
+          >
+            {downloading ? <span className="spinner" /> : localDownload ? <TrashIcon /> : <DownloadIcon />}
+          </button>
           <button className="icon-btn" onClick={onPlay} title={isPlaying ? 'Pause' : 'Play'}>
             {isPlaying ? <PauseIcon /> : <PlayIcon />}
           </button>

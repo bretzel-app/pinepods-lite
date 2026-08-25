@@ -40,8 +40,23 @@ function notify() {
   for (const fn of listeners) fn();
 }
 
+// Progress events arrive per network chunk — hundreds per second across
+// parallel downloads. Every subscriber does IndexedDB reads on notify, so an
+// unthrottled stream can saturate the main thread and freeze the UI.
+// Only fan out on phase changes, ≥1% progress steps, or every 500ms.
+const lastNotified = new Map<number, { phase: DownloadPhase; fraction: number; at: number }>();
+
 function setProgress(p: DownloadProgress) {
   inFlight.set(p.episodeId, p);
+  const last = lastNotified.get(p.episodeId);
+  const now = Date.now();
+  const significant =
+    !last ||
+    last.phase !== p.phase ||
+    (p.fraction ?? 0) - last.fraction >= 0.01 ||
+    now - last.at >= 500;
+  if (!significant) return;
+  lastNotified.set(p.episodeId, { phase: p.phase, fraction: p.fraction ?? 0, at: now });
   notify();
 }
 
@@ -70,13 +85,40 @@ async function fetchWithProgress(url: string, episodeId: number, phase: Download
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Audio files are buffered in memory while downloading; running many in
+// parallel can OOM a mobile tab. Cap concurrency and queue the rest.
+const MAX_CONCURRENT_DOWNLOADS = 2;
+let activeDownloads = 0;
+const downloadQueue: (() => void)[] = [];
+
+async function acquireDownloadSlot(): Promise<void> {
+  if (activeDownloads < MAX_CONCURRENT_DOWNLOADS) {
+    activeDownloads++;
+    return;
+  }
+  await new Promise<void>((resolve) => downloadQueue.push(resolve));
+  activeDownloads++;
+}
+
+function releaseDownloadSlot() {
+  activeDownloads--;
+  downloadQueue.shift()?.();
+}
+
 /** Download an episode's audio into IndexedDB. Resolves when playable offline. */
 export async function downloadEpisode(account: Account, episode: Episode): Promise<void> {
   const episodeId = episode.episodeid;
   if (inFlight.has(episodeId)) return;
   if (await getDownload(account.id, episodeId)) return;
 
+  // Mark as queued immediately so the UI shows a spinner while waiting.
   setProgress({ episodeId, phase: 'fetching' });
+  await acquireDownloadSlot();
+  if (!inFlight.has(episodeId)) {
+    // Removed/cancelled while queued.
+    releaseDownloadSlot();
+    return;
+  }
   try {
     let blob: Blob | null = null;
 
@@ -117,7 +159,9 @@ export async function downloadEpisode(account: Account, episode: Episode): Promi
       blob,
     );
   } finally {
+    releaseDownloadSlot();
     inFlight.delete(episodeId);
+    lastNotified.delete(episodeId);
     notify();
   }
 }

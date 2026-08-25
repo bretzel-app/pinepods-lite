@@ -5,7 +5,10 @@ import { getPodcastEpisodes, getSubscribedPodcasts, removePodcast } from '../lib
 import { useCached } from '../lib/useCached';
 import { cacheSet } from '../lib/db';
 import { stripHtml } from '../lib/format';
+import { isEffectivelyFinished } from '../lib/continueListening';
 import EpisodeRow from '../components/EpisodeRow';
+
+const HIDE_PLAYED_KEY = 'pinepods.hidePlayed';
 
 export default function PodcastDetail() {
   const account = useActiveAccount();
@@ -25,6 +28,26 @@ export default function PodcastDetail() {
     const { episodes } = await getPodcastEpisodes(account, id, 200);
     return episodes;
   });
+
+  const [hidePlayed, setHidePlayed] = useState(
+    () => localStorage.getItem(HIDE_PLAYED_KEY) === '1',
+  );
+  const toggleHidePlayed = () => {
+    setHidePlayed((v) => {
+      localStorage.setItem(HIDE_PLAYED_KEY, v ? '0' : '1');
+      return !v;
+    });
+  };
+
+  // Same "effectively finished" rule as Continue listening: completed flag,
+  // under a minute remaining, or >= 98% played.
+  const visibleEpisodes = useMemo(() => {
+    const all = eps.data ?? [];
+    if (!hidePlayed) return all;
+    return all.filter(
+      (e) => !isEffectivelyFinished(e, e.listenduration ?? 0, e.episodeduration || 0),
+    );
+  }, [eps.data, hidePlayed]);
 
   const onUnsubscribe = async () => {
     if (!podcast) return;
@@ -57,18 +80,29 @@ export default function PodcastDetail() {
         </div>
       </div>
 
+      <label className="hide-played-toggle">
+        <input type="checkbox" checked={hidePlayed} onChange={toggleHidePlayed} />
+        Hide played episodes
+      </label>
+
       {eps.refreshing && <div className="notice">Refreshing episodes…</div>}
       {eps.loading && !eps.data && <div className="notice">Loading episodes…</div>}
       {eps.error && !eps.data && (
         <div className="error-box">Couldn't load episodes: {eps.error.message}</div>
       )}
-      {(eps.data ?? []).map((e) => (
+      {visibleEpisodes.map((e) => (
         <EpisodeRow
           key={e.episodeid}
           episode={{ ...e, podcastid: id, podcastname: e.podcastname || podcast?.podcastname || '' }}
           hidePodcast
         />
       ))}
+      {hidePlayed && eps.data && visibleEpisodes.length < eps.data.length && (
+        <div className="notice">
+          {eps.data.length - visibleEpisodes.length} played episode
+          {eps.data.length - visibleEpisodes.length === 1 ? '' : 's'} hidden.
+        </div>
+      )}
     </div>
   );
 }

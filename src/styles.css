@@ -1017,3 +1017,13 @@ a {
   flex-shrink: 0;
   color: var(--text-dim);
 }
+
+.hide-played-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 4px 8px 10px;
+  cursor: pointer;
+}
