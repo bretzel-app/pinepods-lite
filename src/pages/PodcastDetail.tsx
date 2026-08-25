@@ -29,14 +29,12 @@ export default function PodcastDetail() {
     return episodes;
   });
 
-  const [hidePlayed, setHidePlayed] = useState(
+  const [hidePlayed, setHidePlayedState] = useState(
     () => localStorage.getItem(HIDE_PLAYED_KEY) === '1',
   );
-  const toggleHidePlayed = () => {
-    setHidePlayed((v) => {
-      localStorage.setItem(HIDE_PLAYED_KEY, v ? '0' : '1');
-      return !v;
-    });
+  const setHidePlayed = (value: boolean) => {
+    localStorage.setItem(HIDE_PLAYED_KEY, value ? '1' : '0');
+    setHidePlayedState(value);
   };
 
   // Same "effectively finished" rule as Continue listening: completed flag,
@@ -80,10 +78,17 @@ export default function PodcastDetail() {
         </div>
       </div>
 
-      <label className="hide-played-toggle">
-        <input type="checkbox" checked={hidePlayed} onChange={toggleHidePlayed} />
-        Hide played episodes
-      </label>
+      <div className="list-toolbar">
+        <h2>Episodes</h2>
+        <div className="segmented">
+          <button className={!hidePlayed ? 'on' : ''} onClick={() => setHidePlayed(false)}>
+            All
+          </button>
+          <button className={hidePlayed ? 'on' : ''} onClick={() => setHidePlayed(true)}>
+            Unplayed
+          </button>
+        </div>
+      </div>
 
       {eps.refreshing && <div className="notice">Refreshing episodes…</div>}
       {eps.loading && !eps.data && <div className="notice">Loading episodes…</div>}

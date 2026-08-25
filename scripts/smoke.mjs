@@ -348,7 +348,7 @@ async function main() {
   console.log('PASS podcast detail with key normalization');
 
   // ---- hide-played filter (same rule as Continue listening) ----
-  await page.check('.hide-played-toggle input');
+  await page.click('.segmented button:has-text("Unplayed")');
   await page.waitForFunction(
     () => !document.querySelector('.content').textContent.includes('Episode Three'),
   );
@@ -356,11 +356,11 @@ async function main() {
   if (!filterNote.includes('1 played episode hidden'))
     throw new Error('Hidden-count notice missing');
   if (!filterNote.includes('Episode One')) throw new Error('In-progress episode wrongly hidden');
-  await page.uncheck('.hide-played-toggle input');
+  await page.click('.segmented button:has-text("All")');
   await page.waitForFunction(
     () => document.querySelector('.content').textContent.includes('Episode Three'),
   );
-  console.log('PASS hide played filter on podcast page');
+  console.log('PASS unplayed filter on podcast page');
 
   // ---- search + subscribe ----
   await page.click('nav.sidebar a[href="/search"]');

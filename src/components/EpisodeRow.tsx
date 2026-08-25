@@ -208,7 +208,6 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
                 : formatDuration(total)}
             </span>
             {saved && <StarIcon filled className="meta-star" />}
-            {localDownload && <span className="pill offline">offline</span>}
             {downloading && (
               <span className="pill">
                 {progress !== undefined ? `${Math.round(progress * 100)}%` : 'downloading…'}
@@ -248,12 +247,16 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
           <button
             className={`icon-btn${localDownload ? ' active' : ''}`}
             onClick={() => {
-              if (!guardLongPress()) onDownload();
+              if (guardLongPress()) return;
+              // Downloaded: the check is a status; removal lives in the
+              // sheet behind an explicit label, never one accidental tap.
+              if (localDownload) setSheetOpen(true);
+              else onDownload();
             }}
             disabled={downloading}
-            title={localDownload ? 'Remove download' : 'Download episode'}
+            title={localDownload ? 'Downloaded' : 'Download episode'}
           >
-            {downloading ? <span className="spinner" /> : localDownload ? <TrashIcon /> : <DownloadIcon />}
+            {downloading ? <span className="spinner" /> : localDownload ? <CheckIcon /> : <DownloadIcon />}
           </button>
           <button className="icon-btn" onClick={onPlay} title={isPlaying ? 'Pause' : 'Play'}>
             {isPlaying ? <PauseIcon /> : <PlayIcon />}

@@ -153,7 +153,6 @@ export default function EpisodeDetail() {
             <span>
               {started ? `${formatDuration(Math.max(0, total - listened))} left` : formatDuration(total)}
             </span>
-            {localDownload && <span className="pill offline">offline</span>}
           </div>
           {(started || isCompleted) && total > 0 && (
             <div className="progress-track" style={{ marginTop: 10 }}>
