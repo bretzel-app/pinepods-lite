@@ -96,5 +96,6 @@ export interface PendingOp {
     | { kind: 'save_episode'; episodeId: number }
     | { kind: 'unsave_episode'; episodeId: number }
     | { kind: 'mark_completed'; episodeId: number }
+    | { kind: 'mark_uncompleted'; episodeId: number }
     | { kind: 'record_position'; episodeId: number; seconds: number };
 }

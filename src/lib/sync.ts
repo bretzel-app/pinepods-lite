@@ -1,6 +1,12 @@
 import type { Account, PendingOp } from './types';
 import { deleteOp, listOps, queueOp } from './db';
-import { markEpisodeCompleted, recordListenDuration, saveEpisode, unsaveEpisode } from './api';
+import {
+  markEpisodeCompleted,
+  markEpisodeUncompleted,
+  recordListenDuration,
+  saveEpisode,
+  unsaveEpisode,
+} from './api';
 
 /**
  * Offline mutation queue. Any write that fails because the network is down is
@@ -46,6 +52,9 @@ export async function flushPendingOps(account: Account): Promise<void> {
             break;
           case 'mark_completed':
             await markEpisodeCompleted(account, op.episodeId);
+            break;
+          case 'mark_uncompleted':
+            await markEpisodeUncompleted(account, op.episodeId);
             break;
           case 'record_position':
             if (latestPosition.get(op.episodeId) === pending.id) {

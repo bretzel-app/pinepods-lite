@@ -12,6 +12,7 @@ import type { Account, Episode } from '../lib/types';
 import { cacheGet, cacheSet, getDownloadBlob, getLocalPosition, putLocalPosition } from '../lib/db';
 import { recordListenDuration, serverStreamUrl } from '../lib/api';
 import { runOrQueue } from '../lib/sync';
+import { markCompleted } from '../lib/episodeActions';
 import { useAccounts } from '../lib/accounts';
 
 const SYNC_INTERVAL_MS = 15_000;
@@ -98,6 +99,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const onEnded = () => {
       setPlaying(false);
       void syncToServer(audio.duration || audio.currentTime);
+      // Playback reached the end: mark completed on the server and drop the
+      // local offline copy — it's no longer needed on the device.
+      const account = playbackAccountRef.current;
+      const ep = episodeRef.current;
+      if (account && ep && !ep.completed) {
+        setEpisode({ ...ep, completed: true });
+        void markCompleted(account, ep);
+      }
     };
     audio.addEventListener('timeupdate', onTime);
     audio.addEventListener('durationchange', onDuration);

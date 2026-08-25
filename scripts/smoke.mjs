@@ -126,6 +126,8 @@ async function main() {
   const context = await browser.newContext();
   const page = await context.newPage();
   const errors = [];
+  let completedCalls = 0;
+  let uncompletedCalls = 0;
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(`console: ${m.text()}`);
@@ -194,6 +196,14 @@ async function main() {
     }
     if (p === '/api/data/save_episode' || p === '/api/data/remove_saved_episode')
       return json({ detail: 'ok' });
+    if (p === '/api/data/mark_episode_completed') {
+      completedCalls++;
+      return json({ detail: 'ok' });
+    }
+    if (p === '/api/data/mark_episode_uncompleted') {
+      uncompletedCalls++;
+      return json({ detail: 'ok' });
+    }
     if (p === '/api/data/record_listen_duration') return json({ detail: 'ok' });
     if (p === '/api/data/add_podcast')
       return json({ success: true, podcast_id: 2, first_episode_id: 201 });
@@ -294,6 +304,27 @@ async function main() {
   const detailBody = await page.textContent('body');
   if (!detailBody.includes('First test episode')) throw new Error('Detail missing description');
   console.log('PASS episode detail page');
+
+  // ---- finish flow: download, play to the end (mock audio is 1s) ----
+  // Expect: server told it's completed, local offline copy auto-removed,
+  // Mark played button flips to Mark unplayed.
+  await page.locator('.detail-actions button', { hasText: 'Download' }).click();
+  await page.waitForSelector('.detail-actions button:has-text("Remove download")');
+  await page.click('.detail-actions .btn'); // Play/Resume
+  await page.waitForSelector('.detail-actions button:has-text("Mark unplayed")', {
+    timeout: 15000,
+  });
+  await page.waitForSelector('.detail-actions button:has-text("Remove download")', {
+    state: 'detached',
+  });
+  if (completedCalls < 1) throw new Error('mark_episode_completed was not called on finish');
+  console.log('PASS auto-complete + auto-remove download on finish');
+
+  // ---- manual mark unplayed / played toggle ----
+  await page.locator('.detail-actions button', { hasText: 'Mark unplayed' }).click();
+  await page.waitForSelector('.detail-actions button:has-text("Mark played")');
+  if (uncompletedCalls < 1) throw new Error('mark_episode_uncompleted was not called');
+  console.log('PASS mark played/unplayed toggle');
 
   // ---- play from detail, then full-screen player ----
   await page.click('.detail-actions .btn');

@@ -301,6 +301,13 @@ export async function markEpisodeCompleted(account: Account, episodeId: number):
   });
 }
 
+export async function markEpisodeUncompleted(account: Account, episodeId: number): Promise<void> {
+  await request(account, '/api/data/mark_episode_uncompleted', {
+    method: 'POST',
+    body: JSON.stringify({ episode_id: episodeId, user_id: account.userId, is_youtube: false }),
+  });
+}
+
 export async function getUserHistory(account: Account, limit = 50): Promise<Episode[]> {
   const body = await request<{ data?: Record<string, unknown>[] } | Record<string, unknown>[]>(
     account,

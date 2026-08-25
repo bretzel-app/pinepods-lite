@@ -15,7 +15,8 @@ import {
   subscribeDownloads,
 } from '../lib/downloads';
 import { runOrQueue } from '../lib/sync';
-import { DownloadIcon, PauseIcon, PlayIcon, StarIcon, TrashIcon } from '../components/icons';
+import { markCompleted, markUncompleted } from '../lib/episodeActions';
+import { CheckIcon, DownloadIcon, PauseIcon, PlayIcon, StarIcon, TrashIcon } from '../components/icons';
 
 export default function EpisodeDetail() {
   const account = useActiveAccount();
@@ -30,6 +31,7 @@ export default function EpisodeDetail() {
   const episode = cached.data ?? (stateEpisode?.episodeid === id ? stateEpisode : undefined);
 
   const [saved, setSaved] = useState<boolean | null>(null);
+  const [completed, setCompleted] = useState<boolean | null>(null);
   const [localDownload, setLocalDownload] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<number | undefined>(undefined);
@@ -38,6 +40,10 @@ export default function EpisodeDetail() {
   useEffect(() => {
     if (episode && saved === null) setSaved(episode.saved);
   }, [episode, saved]);
+
+  useEffect(() => {
+    if (episode && completed === null) setCompleted(episode.completed);
+  }, [episode, completed]);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,9 +73,16 @@ export default function EpisodeDetail() {
 
   const isCurrent = player.episode?.episodeid === id;
   const isPlaying = isCurrent && player.playing;
+  const isCompleted = completed ?? episode?.completed ?? false;
+
+  // When playback of this episode finishes while the page is open, the player
+  // flips its copy to completed before any cache refresh — mirror that here.
+  useEffect(() => {
+    if (isCurrent && player.episode?.completed) setCompleted(true);
+  }, [isCurrent, player.episode?.completed]);
   const listened = isCurrent ? player.position : Math.max(localSeconds, episode?.listenduration ?? 0);
   const total = episode?.episodeduration ?? 0;
-  const started = listened > 5 && !episode?.completed;
+  const started = listened > 5 && !isCompleted;
 
   const onPlay = () => {
     if (!episode) return;
@@ -95,6 +108,13 @@ export default function EpisodeDetail() {
       void downloadEpisode(account, episode).catch((e) =>
         alert(`Download failed: ${(e as Error).message}`),
       );
+  };
+
+  const onToggleCompleted = () => {
+    if (!episode) return;
+    const next = !isCompleted;
+    setCompleted(next);
+    void (next ? markCompleted(account, episode) : markUncompleted(account, episode));
   };
 
   if (!episode) {
@@ -131,7 +151,7 @@ export default function EpisodeDetail() {
             <span>
               {started ? `${formatDuration(Math.max(0, total - listened))} left` : formatDuration(total)}
             </span>
-            {episode.completed && <span className="pill">played</span>}
+            {isCompleted && <span className="pill">played</span>}
             {localDownload && <span className="pill offline">offline</span>}
           </div>
           {started && total > 0 && (
@@ -150,6 +170,10 @@ export default function EpisodeDetail() {
         <button className={`btn secondary${saved ? ' saved' : ''}`} onClick={onToggleSave}>
           <StarIcon filled={Boolean(saved)} />
           {saved ? 'Saved' : 'Save'}
+        </button>
+        <button className="btn secondary" onClick={onToggleCompleted}>
+          <CheckIcon />
+          {isCompleted ? 'Mark unplayed' : 'Mark played'}
         </button>
         <button className="btn secondary" onClick={onDownload} disabled={downloading}>
           {downloading ? (
