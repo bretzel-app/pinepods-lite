@@ -1,0 +1,68 @@
+import { useNavigate } from 'react-router-dom';
+import { useAccounts } from '../lib/accounts';
+import { CheckIcon, PlusIcon, TrashIcon } from '../components/icons';
+
+export default function Accounts() {
+  const { accounts, active, switchAccount, removeAccount } = useAccounts();
+  const navigate = useNavigate();
+
+  const onRemove = async (id: string, label: string) => {
+    if (
+      !confirm(
+        `Remove account “${label}” from this device? Its cached data and downloads here will be deleted. Nothing changes on the server.`,
+      )
+    )
+      return;
+    await removeAccount(id);
+  };
+
+  return (
+    <div>
+      <h1 className="page-title">Accounts</h1>
+      {accounts.map((a) => {
+        const isActive = a.id === active?.id;
+        return (
+          <div className={`account-row${isActive ? ' active-account' : ''}`} key={a.id}>
+            <div className="avatar">{(a.fullname || a.username).slice(0, 1).toUpperCase()}</div>
+            <div
+              className="account-main"
+              style={{ cursor: isActive ? 'default' : 'pointer' }}
+              onClick={() => !isActive && switchAccount(a.id)}
+            >
+              <div className="name">
+                {a.fullname || a.username}
+                {isActive && (
+                  <span className="pill offline" style={{ marginLeft: 8 }}>
+                    <CheckIcon /> active
+                  </span>
+                )}
+              </div>
+              <div className="server">
+                {a.username} @ {a.serverUrl.replace(/^https?:\/\//, '')}
+              </div>
+            </div>
+            {!isActive && (
+              <button className="btn secondary" onClick={() => switchAccount(a.id)}>
+                Switch
+              </button>
+            )}
+            <button
+              className="icon-btn"
+              title="Remove from this device"
+              onClick={() => onRemove(a.id, a.username)}
+            >
+              <TrashIcon />
+            </button>
+          </div>
+        );
+      })}
+      <button className="btn secondary" onClick={() => navigate('/login')}>
+        <PlusIcon /> Add account
+      </button>
+      <p className="notice" style={{ marginTop: 16 }}>
+        Each account keeps its own cache, playback positions and offline downloads. Switching is
+        instant and works offline.
+      </p>
+    </div>
+  );
+}
