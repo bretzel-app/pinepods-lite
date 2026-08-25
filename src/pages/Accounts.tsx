@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../lib/accounts';
-import { CheckIcon, PlusIcon, TrashIcon } from '../components/icons';
+import { CheckIcon, PlusIcon, SwapIcon, TrashIcon } from '../components/icons';
 
 export default function Accounts() {
   const { accounts, active, switchAccount, removeAccount } = useAccounts();
@@ -56,9 +56,16 @@ export default function Accounts() {
           </div>
         );
       })}
-      <button className="btn secondary" onClick={() => navigate('/login')}>
-        <PlusIcon /> Add account
-      </button>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <button className="btn secondary" onClick={() => navigate('/login')}>
+          <PlusIcon /> Add account
+        </button>
+        {accounts.length > 1 && (
+          <button className="btn secondary" onClick={() => navigate('/transfer')}>
+            <SwapIcon /> Transfer podcasts…
+          </button>
+        )}
+      </div>
       <p className="notice" style={{ marginTop: 16 }}>
         Each account keeps its own cache, playback positions and offline downloads. Switching is
         instant and works offline.

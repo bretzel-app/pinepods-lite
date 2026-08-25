@@ -13,6 +13,7 @@ import Search from './pages/Search';
 import Saved from './pages/Saved';
 import Downloads from './pages/Downloads';
 import Accounts from './pages/Accounts';
+import Transfer from './pages/Transfer';
 
 export default function App() {
   const { active, ready } = useAccounts();
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="/saved" element={<Saved />} />
         <Route path="/downloads" element={<Downloads />} />
         <Route path="/accounts" element={<Accounts />} />
+        <Route path="/transfer" element={<Transfer />} />
         <Route path="/login" element={<Login />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

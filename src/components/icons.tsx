@@ -112,6 +112,15 @@ export const CloudOffIcon = ({ className }: IconProps) => (
   </svg>
 );
 
+export const SwapIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M4 8h13" />
+    <path d="m14 4 4 4-4 4" />
+    <path d="M20 16H7" />
+    <path d="m10 12-4 4 4 4" />
+  </svg>
+);
+
 export const PlusIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <path d="M12 5v14M5 12h14" />

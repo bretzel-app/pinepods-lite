@@ -129,6 +129,9 @@ async function main() {
   let completedCalls = 0;
   let uncompletedCalls = 0;
   let sweepCompleted103 = false;
+  const kidPods = [];
+  const kidPositions = [];
+  const kidSaves = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(`console: ${m.text()}`);
@@ -139,11 +142,23 @@ async function main() {
     const url = new URL(route.request().url());
     const p = url.pathname;
     const json = (body) => route.fulfill({ json: body });
-    if (p === '/api/data/get_key')
-      return json({ status: 'success', retrieved_key: 'k123', user_id: 7, mfa_required: false });
+    if (p === '/api/data/get_key') {
+      const auth = route.request().headers()['authorization'] ?? '';
+      const user = Buffer.from(auth.replace('Basic ', ''), 'base64').toString().split(':')[0];
+      const userId = user === 'kid' ? 8 : 7;
+      return json({
+        status: 'success',
+        retrieved_key: `k${userId}`,
+        user_id: userId,
+        mfa_required: false,
+      });
+    }
     if (p.startsWith('/api/data/user_details_id/'))
-      return json({ UserID: 7, Fullname: 'Fred Tester', Username: 'fred', Email: 'f@x.y' });
-    if (p.startsWith('/api/data/return_pods/')) return json({ pods });
+      return p.endsWith('/8')
+        ? json({ UserID: 8, Fullname: 'Kid Tester', Username: 'kid', Email: 'k@x.y' })
+        : json({ UserID: 7, Fullname: 'Fred Tester', Username: 'fred', Email: 'f@x.y' });
+    if (p.startsWith('/api/data/return_pods/'))
+      return json({ pods: p.endsWith('/8') ? kidPods : pods });
     if (p.startsWith('/api/data/return_episodes/')) return json({ episodes, total: 2 });
     if (p.startsWith('/api/data/user_history/'))
       // History: the in-progress one and the nearly-finished one (should be
@@ -157,15 +172,28 @@ async function main() {
       });
     if (p.startsWith('/api/data/saved_episode_list/'))
       return json({ saved_episodes: [episodes[1]], total: 1 });
-    if (p === '/api/data/podcast_episodes')
+    if (p === '/api/data/podcast_episodes') {
+      // The kid's copy of the feed: same episodes, different ids, no history.
+      if (url.searchParams.get('user_id') === '8')
+        return json({
+          episodes: episodes.map((e) => ({
+            ...e,
+            episodeid: e.episodeid + 1000,
+            listenduration: null,
+            completed: false,
+            saved: false,
+          })),
+          total: episodes.length,
+        });
       return json({
         episodes: episodes.map((e) => ({
           ...e,
           Episodetitle: e.episodetitle,
           episodetitle: undefined,
         })),
-        total: 2,
+        total: episodes.length,
       });
+    }
     if (p === '/api/data/proxy_search')
       return json({
         status: 'true',
@@ -198,8 +226,11 @@ async function main() {
       const completed = ep.episodeid === 103 && sweepCompleted103 ? true : ep.completed;
       return json({ episode: { ...ep, completed } });
     }
-    if (p === '/api/data/save_episode' || p === '/api/data/remove_saved_episode')
+    if (p === '/api/data/save_episode' || p === '/api/data/remove_saved_episode') {
+      const body = route.request().postDataJSON();
+      if (p === '/api/data/save_episode' && body.user_id === 8) kidSaves.push(body.episode_id);
       return json({ detail: 'ok' });
+    }
     if (p === '/api/data/mark_episode_completed') {
       completedCalls++;
       return json({ detail: 'ok' });
@@ -208,9 +239,17 @@ async function main() {
       uncompletedCalls++;
       return json({ detail: 'ok' });
     }
-    if (p === '/api/data/record_listen_duration') return json({ detail: 'ok' });
-    if (p === '/api/data/add_podcast')
-      return json({ success: true, podcast_id: 2, first_episode_id: 201 });
+    if (p === '/api/data/record_listen_duration') {
+      const body = route.request().postDataJSON();
+      if (body.user_id === 8) kidPositions.push([body.episode_id, body.listen_duration]);
+      return json({ detail: 'ok' });
+    }
+    if (p === '/api/data/add_podcast') {
+      const body = route.request().postDataJSON();
+      if (body.podcast_values.user_id === 8)
+        kidPods.push({ ...pods[0], podcastid: 2, feedurl: body.podcast_values.pod_feed_url });
+      return json({ success: true, podcast_id: 2, first_episode_id: 1101 });
+    }
     if (p.startsWith('/api/data/verify_key')) return json({ status: 'success' });
     console.log('UNMOCKED:', p);
     return route.fulfill({ status: 404, json: { error: 'unmocked ' + p } });
@@ -402,6 +441,42 @@ async function main() {
   const acct = await page.textContent('body');
   if (!acct.includes('Fred Tester')) throw new Error('Account name missing');
   console.log('PASS accounts page');
+
+  // ---- transfer podcasts to a second account ----
+  await page.click('.btn:has-text("Add account")');
+  await page.waitForSelector('.login-card');
+  await page.fill('#server', SERVER);
+  await page.fill('#username', 'kid');
+  await page.fill('#password', 'pw');
+  await page.click('button[type=submit]');
+  await page.waitForSelector('.page-title');
+  // Switch back to the source account.
+  await page.click('nav.sidebar a[href="/accounts"]');
+  await page
+    .locator('.account-row', { hasText: 'Fred Tester' })
+    .locator('button:has-text("Switch")')
+    .click();
+  await page.waitForSelector('.account-row:has-text("Fred Tester") .pill:has-text("active")');
+  await page.click('button:has-text("Transfer podcasts")');
+  await page
+    .locator('.account-row', { hasText: 'Test Cast' })
+    .locator('input[type=checkbox]')
+    .check();
+  await page.click('.btn:has-text("Transfer 1 podcast")');
+  await page.waitForFunction(() => document.body.textContent.includes('Transfer complete'), null, {
+    timeout: 30000,
+  });
+  const summary = await page.textContent('body');
+  if (!summary.includes('2 positions')) throw new Error(`Expected 2 positions copied: ${summary}`);
+  if (!kidPositions.some(([id, s]) => id === 1101 && s === 300))
+    throw new Error(`Episode One position not copied: ${JSON.stringify(kidPositions)}`);
+  if (!kidPositions.some(([id, s]) => id === 1103 && s === 1790))
+    throw new Error(`Episode Three position not copied: ${JSON.stringify(kidPositions)}`);
+  if (!kidSaves.includes(1102))
+    throw new Error(`Saved flag not copied: ${JSON.stringify(kidSaves)}`);
+  console.log('PASS transfer subscription + history to second account');
+  await page.click('.btn:has-text("Done")');
+  await page.waitForSelector('.account-row');
 
   // ---- wait for SW to install, then go offline and reload ----
   await page.waitForFunction(

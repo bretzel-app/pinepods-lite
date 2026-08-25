@@ -47,6 +47,7 @@ export interface Podcast {
   explicit: boolean;
   podcastindexid?: number | null;
   is_youtube?: boolean;
+  is_video?: boolean;
 }
 
 /** A search hit from the Podcast Index (via the server's proxy_search). */
