@@ -153,12 +153,14 @@ export default function EpisodeDetail() {
             <span>
               {started ? `${formatDuration(Math.max(0, total - listened))} left` : formatDuration(total)}
             </span>
-            {isCompleted && <span className="pill">played</span>}
             {localDownload && <span className="pill offline">offline</span>}
           </div>
-          {started && total > 0 && (
+          {(started || isCompleted) && total > 0 && (
             <div className="progress-track" style={{ marginTop: 10 }}>
-              <div className="progress-fill" style={{ width: `${Math.min(1, listened / total) * 100}%` }} />
+              <div
+                className="progress-fill"
+                style={{ width: `${isCompleted ? 100 : Math.min(1, listened / total) * 100}%` }}
+              />
             </div>
           )}
         </div>

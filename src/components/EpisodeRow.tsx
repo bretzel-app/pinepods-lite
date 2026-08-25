@@ -13,7 +13,7 @@ import {
 } from '../lib/downloads';
 import { saveEpisode, unsaveEpisode } from '../lib/api';
 import { runOrQueue } from '../lib/sync';
-import { CheckIcon, DownloadIcon, PauseIcon, PlayIcon, StarIcon, TrashIcon } from './icons';
+import { DownloadIcon, PauseIcon, PlayIcon, StarIcon, TrashIcon } from './icons';
 
 interface Props {
   episode: Episode;
@@ -70,7 +70,8 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
     ? player.position
     : Math.max(localSeconds ?? 0, episode.listenduration ?? 0);
   const total = episode.episodeduration || 0;
-  const fraction = total > 0 ? Math.min(1, listened / total) : 0;
+  // A completed episode shows a full bar — that's its "played" indicator.
+  const fraction = episode.completed ? 1 : total > 0 ? Math.min(1, listened / total) : 0;
   const started = listened > 5 && !episode.completed;
 
   const onPlay = () => {
@@ -127,11 +128,6 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
               ? `${formatDuration(Math.max(0, total - listened))} left`
               : formatDuration(total)}
           </span>
-          {episode.completed && (
-            <span className="pill">
-              <CheckIcon /> played
-            </span>
-          )}
           {localDownload && <span className="pill offline">offline</span>}
           {downloading && (
             <span className="pill">
@@ -139,7 +135,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
             </span>
           )}
         </div>
-        {started && total > 0 && (
+        {(started || episode.completed) && total > 0 && (
           <div className="progress-track">
             <div className="progress-fill" style={{ width: `${fraction * 100}%` }} />
           </div>
