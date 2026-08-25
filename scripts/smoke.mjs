@@ -433,6 +433,20 @@ async function main() {
   await page.waitForSelector('.full-player');
   const fp = await page.textContent('.full-player');
   if (!fp.includes('Episode One')) throw new Error('Full player missing episode');
+  // Sleep timer: set 30m, button shows countdown, then cancel.
+  await page.click('.full-player button[title="Sleep timer"]');
+  await page.click('.sleep-options button:has-text("30m")');
+  await page.waitForFunction(() => {
+    const b = document.querySelector('.full-player button[title="Sleep timer"]');
+    return b && /\d+m/.test(b.textContent);
+  });
+  await page.click('.full-player button[title="Sleep timer"]');
+  await page.click('.sleep-options button:has-text("Off")');
+  await page.waitForFunction(() => {
+    const b = document.querySelector('.full-player button[title="Sleep timer"]');
+    return b && !/\d+m/.test(b.textContent);
+  });
+  console.log('PASS sleep timer set and cancel');
   await page.click('.full-player-top .icon-btn');
   await page.waitForSelector('.full-player', { state: 'detached' });
   console.log('PASS full-screen player');

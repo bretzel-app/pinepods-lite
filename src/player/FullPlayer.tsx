@@ -1,17 +1,32 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayer } from './PlayerContext';
 import { useAccounts } from '../lib/accounts';
 import { cacheSet } from '../lib/db';
 import { formatDuration } from '../lib/format';
-import { PauseIcon, PlayIcon, SkipBackIcon, SkipFwdIcon } from '../components/icons';
+import { MoonIcon, PauseIcon, PlayIcon, SkipBackIcon, SkipFwdIcon } from '../components/icons';
 
 const RATES = [1, 1.25, 1.5, 1.75, 2, 0.75];
+const SLEEP_MINUTES = [15, 30, 45, 60];
 
 export default function FullPlayer({ onClose }: { onClose: () => void }) {
-  const { episode, playing, position, duration, rate, offlineSource, toggle, seek, skip, setRate } =
-    usePlayer();
+  const {
+    episode,
+    playing,
+    position,
+    duration,
+    rate,
+    offlineSource,
+    sleepRemaining,
+    toggle,
+    seek,
+    skip,
+    setRate,
+    setSleepTimer,
+  } = usePlayer();
   const { active } = useAccounts();
   const navigate = useNavigate();
+  const [sleepOpen, setSleepOpen] = useState(false);
 
   if (!episode) return null;
 
@@ -78,9 +93,51 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
         <button className="icon-btn big" onClick={() => skip(30)} title="Forward 30s">
           <SkipFwdIcon />
         </button>
-        {/* Invisible twin of the speed button so the play button stays centered. */}
-        <span className="icon-btn" style={{ visibility: 'hidden' }} aria-hidden="true" />
+        <button
+          className={`icon-btn${sleepRemaining != null ? ' active' : ''}`}
+          onClick={() => setSleepOpen((o) => !o)}
+          title="Sleep timer"
+        >
+          {sleepRemaining != null ? (
+            <span style={{ fontSize: 11, fontWeight: 700 }}>
+              {Math.max(1, Math.ceil(sleepRemaining / 60))}m
+            </span>
+          ) : (
+            <MoonIcon />
+          )}
+        </button>
       </div>
+
+      {sleepOpen && (
+        <div className="sleep-options">
+          <span className="muted" style={{ fontSize: 12.5 }}>
+            Sleep in
+          </span>
+          {SLEEP_MINUTES.map((m) => (
+            <button
+              key={m}
+              className="btn secondary sleep-pill"
+              onClick={() => {
+                setSleepTimer(m);
+                setSleepOpen(false);
+              }}
+            >
+              {m}m
+            </button>
+          ))}
+          {sleepRemaining != null && (
+            <button
+              className="btn secondary sleep-pill"
+              onClick={() => {
+                setSleepTimer(null);
+                setSleepOpen(false);
+              }}
+            >
+              Off
+            </button>
+          )}
+        </div>
+      )}
 
       <button className="btn secondary fp-notes" onClick={openDetail}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ width: 16, height: 16 }}>

@@ -26,11 +26,15 @@ interface PlayerState {
   rate: number;
   /** True when playing from a locally downloaded blob. */
   offlineSource: boolean;
+  /** Seconds until the sleep timer pauses playback; null when off. */
+  sleepRemaining: number | null;
   play: (episode: Episode) => Promise<void>;
   toggle: () => void;
   seek: (seconds: number) => void;
   skip: (deltaSeconds: number) => void;
   setRate: (rate: number) => void;
+  /** Start a sleep timer for the given minutes, or null to cancel. */
+  setSleepTimer: (minutes: number | null) => void;
 }
 
 const PlayerContext = createContext<PlayerState | null>(null);
@@ -48,6 +52,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0);
   const [rate, setRateState] = useState(1);
   const [offlineSource, setOfflineSource] = useState(false);
+  const [sleepUntil, setSleepUntil] = useState<number | null>(null);
+  const [sleepRemaining, setSleepRemaining] = useState<number | null>(null);
 
   if (!audioRef.current && typeof Audio !== 'undefined') {
     audioRef.current = new Audio();
@@ -261,6 +267,56 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [active, loadEpisode]);
 
+  const setSleepTimer = useCallback((minutes: number | null) => {
+    if (minutes == null) {
+      setSleepUntil(null);
+      setSleepRemaining(null);
+    } else {
+      setSleepUntil(Date.now() + minutes * 60_000);
+      setSleepRemaining(minutes * 60);
+    }
+  }, []);
+
+  // Sleep timer: count down, then fade out over ~5s and pause.
+  useEffect(() => {
+    if (sleepUntil == null) return;
+    const tick = window.setInterval(() => {
+      const remaining = Math.ceil((sleepUntil - Date.now()) / 1000);
+      if (remaining > 0) {
+        setSleepRemaining(remaining);
+        return;
+      }
+      window.clearInterval(tick);
+      setSleepUntil(null);
+      setSleepRemaining(null);
+      const audio = audioRef.current;
+      if (!audio || audio.paused) return; // expired while already paused
+      const startVolume = audio.volume;
+      const steps = 25;
+      let step = 0;
+      const fade = window.setInterval(() => {
+        step++;
+        try {
+          // Some platforms (iOS) expose a read-only volume; fading is
+          // best-effort there and we still pause at the end.
+          audio.volume = Math.max(0, startVolume * (1 - step / steps));
+        } catch {
+          /* ignore */
+        }
+        if (step >= steps) {
+          window.clearInterval(fade);
+          audio.pause();
+          try {
+            audio.volume = startVolume;
+          } catch {
+            /* ignore */
+          }
+        }
+      }, 200);
+    }, 1000);
+    return () => window.clearInterval(tick);
+  }, [sleepUntil]);
+
   const toggle = useCallback(() => {
     const audio = audioRef.current;
     if (!audio || !episodeRef.current) return;
@@ -306,13 +362,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       duration,
       rate,
       offlineSource,
+      sleepRemaining,
       play,
       toggle,
       seek,
       skip,
       setRate,
+      setSleepTimer,
     }),
-    [episode, playing, position, duration, rate, offlineSource, play, toggle, seek, skip, setRate],
+    [
+      episode,
+      playing,
+      position,
+      duration,
+      rate,
+      offlineSource,
+      sleepRemaining,
+      play,
+      toggle,
+      seek,
+      skip,
+      setRate,
+      setSleepTimer,
+    ],
   );
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;

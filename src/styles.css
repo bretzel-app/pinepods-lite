@@ -844,3 +844,19 @@ a {
   height: 16px;
   flex-shrink: 0;
 }
+
+/* ---- sleep timer ---- */
+
+.sleep-options {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.sleep-pill {
+  padding: 6px 13px;
+  font-size: 13px;
+}
