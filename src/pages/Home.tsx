@@ -5,7 +5,6 @@ import { useCached } from '../lib/useCached';
 import { buildContinueListening, isEffectivelyFinished } from '../lib/continueListening';
 import type { Episode } from '../lib/types';
 import EpisodeRow from '../components/EpisodeRow';
-import { PlayedFilter, useHidePlayed } from '../components/PlayedFilter';
 
 export default function Home() {
   const account = useActiveAccount();
@@ -28,14 +27,15 @@ export default function Home() {
     };
   }, [account, history.data]);
 
-  const [hidePlayed, setHidePlayed] = useHidePlayed();
-  const latest = useMemo(() => {
-    const all = recent.data ?? [];
-    if (!hidePlayed) return all;
-    return all.filter(
-      (e) => !isEffectivelyFinished(e, e.listenduration ?? 0, e.episodeduration || 0),
-    );
-  }, [recent.data, hidePlayed]);
+  // Home is a "what's next" feed: finished episodes have no business here.
+  // (Podcast pages keep the All/Unplayed toggle for browsing back-catalog.)
+  const latest = useMemo(
+    () =>
+      (recent.data ?? []).filter(
+        (e) => !isEffectivelyFinished(e, e.listenduration ?? 0, e.episodeduration || 0),
+      ),
+    [recent.data],
+  );
 
   return (
     <div>
@@ -53,10 +53,9 @@ export default function Home() {
         </section>
       )}
 
-      <div className="list-toolbar" style={{ marginTop: inProgress.length > 0 ? 18 : 0 }}>
-        <h2>Latest episodes</h2>
-        <PlayedFilter value={hidePlayed} onChange={setHidePlayed} />
-      </div>
+      <h2 style={{ fontSize: 15, margin: inProgress.length > 0 ? '18px 0 4px' : '4px 0' }}>
+        Latest episodes
+      </h2>
 
       {recent.loading && !recent.data && (
         <div className="notice">Loading your feed…</div>
@@ -67,12 +66,6 @@ export default function Home() {
       {latest.map((e) => (
         <EpisodeRow key={e.episodeid} episode={e} />
       ))}
-      {hidePlayed && recent.data && latest.length < recent.data.length && (
-        <div className="notice">
-          {recent.data.length - latest.length} played episode
-          {recent.data.length - latest.length === 1 ? '' : 's'} hidden.
-        </div>
-      )}
       {recent.data?.length === 0 && (
         <div className="notice">
           No episodes yet — subscribe to some podcasts from the Search tab.
