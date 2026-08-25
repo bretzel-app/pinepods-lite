@@ -252,6 +252,41 @@ export async function searchPodcasts(account: Account, query: string): Promise<S
   }));
 }
 
+// ---- feed preview (episodes of a podcast the user hasn't subscribed to) --------
+
+export interface FeedEpisode {
+  title: string | null;
+  description: string | null;
+  pub_date: string;
+  enclosure_url: string | null;
+  artwork: string | null;
+  content: string | null;
+  duration: number;
+  guid: string;
+  is_video: boolean;
+}
+
+/** Server-side RSS parse of an arbitrary feed — no subscription required. */
+export async function fetchPodcastFeed(
+  account: Account,
+  feedUrl: string,
+): Promise<FeedEpisode[]> {
+  const body = await request<{ episodes: FeedEpisode[] }>(
+    account,
+    `/api/data/fetch_podcast_feed?podcast_feed=${encodeURIComponent(feedUrl)}`,
+  );
+  return body.episodes ?? [];
+}
+
+/** Stable negative id for a preview episode (real server ids are positive).
+ * The player persists local resume positions under it but never syncs
+ * negative ids to the server. */
+export function previewEpisodeId(key: string): number {
+  let h = 5381;
+  for (let i = 0; i < key.length; i++) h = ((h << 5) + h + key.charCodeAt(i)) | 0;
+  return -(Math.abs(h) || 1);
+}
+
 // ---- favorites (saved episodes) ------------------------------------------------
 
 export async function getSavedEpisodes(account: Account): Promise<Episode[]> {

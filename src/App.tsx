@@ -10,6 +10,7 @@ import Podcasts from './pages/Podcasts';
 import PodcastDetail from './pages/PodcastDetail';
 import EpisodeDetail from './pages/EpisodeDetail';
 import Search from './pages/Search';
+import PodcastPreview from './pages/PodcastPreview';
 import Saved from './pages/Saved';
 import Downloads from './pages/Downloads';
 import Accounts from './pages/Accounts';
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="/podcasts/:podcastId" element={<PodcastDetail />} />
         <Route path="/episodes/:episodeId" element={<EpisodeDetail />} />
         <Route path="/search" element={<Search />} />
+        <Route path="/preview" element={<PodcastPreview />} />
         <Route path="/saved" element={<Saved />} />
         <Route path="/downloads" element={<Downloads />} />
         <Route path="/accounts" element={<Accounts />} />

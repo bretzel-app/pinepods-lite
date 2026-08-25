@@ -77,6 +77,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const account = playbackAccountRef.current;
       const ep = episodeRef.current;
       if (!account || !ep || seconds <= 0) return;
+      // Preview episodes (negative synthetic ids) don't exist on the server:
+      // keep resume local-only.
+      if (ep.episodeid < 0) {
+        await persistPosition(seconds, false);
+        return;
+      }
       await persistPosition(seconds, true);
       await runOrQueue(account, { kind: 'record_position', episodeId: ep.episodeid, seconds }, () =>
         recordListenDuration(account, ep.episodeid, seconds),
@@ -103,7 +109,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // local offline copy — it's no longer needed on the device.
       const account = playbackAccountRef.current;
       const ep = episodeRef.current;
-      if (account && ep && !ep.completed) {
+      if (account && ep && !ep.completed && ep.episodeid > 0) {
         setEpisode({ ...ep, completed: true });
         void markCompleted(account, ep);
       }

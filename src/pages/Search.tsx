@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useActiveAccount } from '../lib/accounts';
 import { addPodcast, getSubscribedPodcasts, searchPodcasts } from '../lib/api';
 import type { SearchResult } from '../lib/types';
@@ -10,6 +11,7 @@ import { useOnline } from '../components/Layout';
 export default function Search() {
   const account = useActiveAccount();
   const online = useOnline();
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -32,6 +34,17 @@ export default function Search() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const openPodcast = (r: SearchResult) => {
+    // Already subscribed → the real podcast page; otherwise a feed preview.
+    const sub = (subs.data ?? []).find((p) => p.feedurl === r.feedUrl);
+    if (sub) {
+      navigate(`/podcasts/${sub.podcastid}`);
+      return;
+    }
+    void cacheSet(account.id, `feedmeta:${r.feedUrl}`, r);
+    navigate(`/preview?feed=${encodeURIComponent(r.feedUrl)}`, { state: { result: r } });
   };
 
   const onSubscribe = async (r: SearchResult) => {
@@ -82,8 +95,12 @@ export default function Search() {
         const isSubscribed = subscribedFeeds.has(r.feedUrl);
         return (
           <div className="episode-row" key={`${r.indexId}:${r.feedUrl}`}>
-            {r.artwork ? <img className="artwork" src={r.artwork} alt="" loading="lazy" /> : <div className="artwork" />}
-            <div className="episode-main" style={{ cursor: 'default' }}>
+            {r.artwork ? (
+              <img className="artwork" src={r.artwork} alt="" loading="lazy" onClick={() => openPodcast(r)} />
+            ) : (
+              <div className="artwork" onClick={() => openPodcast(r)} />
+            )}
+            <div className="episode-main" onClick={() => openPodcast(r)}>
               <div className="episode-title">{r.title}</div>
               <div className="episode-meta">
                 <span>{r.author}</span>

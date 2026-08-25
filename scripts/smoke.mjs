@@ -218,6 +218,23 @@ async function main() {
       });
     if (p.startsWith('/audio/'))
       return route.fulfill({ body: tinyWav(), contentType: 'audio/wav' });
+    if (p === '/api/data/fetch_podcast_feed')
+      return json({
+        episodes: [
+          {
+            title: 'Found Ep',
+            description: 'A found episode',
+            pub_date: '2026-08-01T00:00:00Z',
+            enclosure_url: `${SERVER}/audio/found.mp3`,
+            enclosure_length: '123',
+            artwork: '',
+            content: null,
+            duration: 600,
+            guid: 'found-guid-1',
+            is_video: false,
+          },
+        ],
+      });
     if (p === '/api/data/get_episode_metadata') {
       const body = route.request().postDataJSON();
       const ep = episodes.find((e) => e.episodeid === body.episode_id);
@@ -324,6 +341,29 @@ async function main() {
   const sr = await page.textContent('body');
   if (!sr.includes('Found Cast')) throw new Error('Search results missing');
   console.log('PASS search');
+
+  // ---- feed preview: open a search result, see and play its episodes ----
+  await page
+    .locator('.episode-row', { hasText: 'Found Cast' })
+    .locator('.episode-main')
+    .click();
+  await page.waitForFunction(() => location.pathname === '/preview');
+  await page.waitForFunction(() => document.body.textContent.includes('Found Ep'));
+  await page
+    .locator('.episode-row', { hasText: 'Found Ep' })
+    .locator('button[title="Play"]')
+    .click();
+  await page.waitForSelector('.player-bar');
+  const previewBar = await page.textContent('.player-bar');
+  if (!previewBar.includes('Found Ep')) throw new Error('Preview episode not playing');
+  console.log('PASS podcast preview with playable episodes');
+
+  // ---- subscribe from the preview lands on the real podcast page ----
+  await page.click('.pod-header .btn');
+  await page.waitForFunction(() => location.pathname === '/podcasts/2', null, { timeout: 15000 });
+  await page.waitForFunction(() => document.body.textContent.includes('Episode One'));
+  console.log('PASS subscribe from preview');
+  await page.click('nav.sidebar a[href="/search"]');
 
   // ---- saved page ----
   await page.click('nav.sidebar a[href="/saved"]');
