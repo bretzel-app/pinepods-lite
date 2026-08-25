@@ -19,11 +19,14 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
     rate,
     offlineSource,
     sleepRemaining,
+    sleepMinutes,
+    sleepRepeat,
     toggle,
     seek,
     skip,
     setRate,
     setSleepTimer,
+    setSleepRepeat,
   } = usePlayer();
   const { active } = useAccounts();
   const navigate = useNavigate();
@@ -113,7 +116,7 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
           <SkipFwdIcon />
         </button>
         <button
-          className={`icon-btn${sleepRemaining != null ? ' active' : ''}`}
+          className={`icon-btn${sleepMinutes != null ? ' active' : ''}`}
           onClick={() => setSleepOpen((o) => !o)}
           title="Sleep timer"
         >
@@ -128,33 +131,48 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
       </div>
 
       {sleepOpen && (
-        <div className="sleep-options">
-          <span className="muted" style={{ fontSize: 12.5 }}>
-            Sleep in
-          </span>
-          {SLEEP_MINUTES.map((m) => (
-            <button
-              key={m}
-              className="btn secondary sleep-pill"
-              onClick={() => {
-                setSleepTimer(m);
-                setSleepOpen(false);
-              }}
-            >
-              {m}m
-            </button>
-          ))}
-          {sleepRemaining != null && (
-            <button
-              className="btn secondary sleep-pill"
-              onClick={() => {
-                setSleepTimer(null);
-                setSleepOpen(false);
-              }}
-            >
-              Off
-            </button>
-          )}
+        <div className="sleep-panel">
+          <div className="sleep-options">
+            <span className="muted" style={{ fontSize: 12.5 }}>
+              Sleep in
+            </span>
+            {SLEEP_MINUTES.map((m) => (
+              <button
+                key={m}
+                className="btn secondary sleep-pill"
+                onClick={() => {
+                  setSleepTimer(m);
+                  setSleepOpen(false);
+                }}
+              >
+                {m}m
+              </button>
+            ))}
+            {sleepMinutes != null && (
+              <button
+                className="btn secondary sleep-pill"
+                onClick={() => {
+                  setSleepTimer(null);
+                  setSleepOpen(false);
+                }}
+              >
+                Off
+              </button>
+            )}
+          </div>
+          <label className="sleep-repeat">
+            <input
+              type="checkbox"
+              checked={sleepRepeat}
+              onChange={(e) => setSleepRepeat(e.target.checked)}
+            />
+            Check-in mode: pressing play restarts the timer, so dozing off only costs one interval
+          </label>
+        </div>
+      )}
+      {!sleepOpen && sleepMinutes != null && sleepRemaining == null && !playing && (
+        <div className="notice" style={{ textAlign: 'center' }}>
+          Sleep check-in: press play to keep listening for another {sleepMinutes} min
         </div>
       )}
 

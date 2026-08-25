@@ -468,12 +468,17 @@ async function main() {
     return b && /\d+m/.test(b.textContent);
   });
   await page.click('.full-player button[title="Sleep timer"]');
+  // Check-in mode toggle persists.
+  await page.check('.sleep-repeat input');
+  const repeatStored = await page.evaluate(() => localStorage.getItem('pinepods.sleepRepeat'));
+  if (repeatStored !== '1') throw new Error('Check-in mode not persisted');
+  await page.uncheck('.sleep-repeat input');
   await page.click('.sleep-options button:has-text("Off")');
   await page.waitForFunction(() => {
     const b = document.querySelector('.full-player button[title="Sleep timer"]');
     return b && !/\d+m/.test(b.textContent);
   });
-  console.log('PASS sleep timer set and cancel');
+  console.log('PASS sleep timer set, check-in toggle, cancel');
 
   // Transcript inside the full player: toggle replaces artwork with lines.
   await page.click('.full-player button[title="Transcript"]');

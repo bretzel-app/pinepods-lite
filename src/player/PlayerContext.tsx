@@ -28,6 +28,10 @@ interface PlayerState {
   offlineSource: boolean;
   /** Seconds until the sleep timer pauses playback; null when off. */
   sleepRemaining: number | null;
+  /** The armed sleep duration in minutes; null when the timer is off. */
+  sleepMinutes: number | null;
+  /** Check-in mode: pressing play re-arms the timer to its full duration. */
+  sleepRepeat: boolean;
   play: (episode: Episode, startAt?: number) => Promise<void>;
   toggle: () => void;
   seek: (seconds: number) => void;
@@ -35,7 +39,10 @@ interface PlayerState {
   setRate: (rate: number) => void;
   /** Start a sleep timer for the given minutes, or null to cancel. */
   setSleepTimer: (minutes: number | null) => void;
+  setSleepRepeat: (repeat: boolean) => void;
 }
+
+const SLEEP_REPEAT_KEY = 'pinepods.sleepRepeat';
 
 const PlayerContext = createContext<PlayerState | null>(null);
 
@@ -54,6 +61,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [offlineSource, setOfflineSource] = useState(false);
   const [sleepUntil, setSleepUntil] = useState<number | null>(null);
   const [sleepRemaining, setSleepRemaining] = useState<number | null>(null);
+  const [sleepMinutes, setSleepMinutes] = useState<number | null>(null);
+  const [sleepRepeat, setSleepRepeatState] = useState<boolean>(
+    () => localStorage.getItem(SLEEP_REPEAT_KEY) === '1',
+  );
+  const sleepMinutesRef = useRef<number | null>(null);
+  const sleepRepeatRef = useRef(sleepRepeat);
+  sleepRepeatRef.current = sleepRepeat;
 
   if (!audioRef.current && typeof Audio !== 'undefined') {
     audioRef.current = new Audio();
@@ -278,6 +292,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [active, loadEpisode]);
 
   const setSleepTimer = useCallback((minutes: number | null) => {
+    sleepMinutesRef.current = minutes;
+    setSleepMinutes(minutes);
     if (minutes == null) {
       setSleepUntil(null);
       setSleepRemaining(null);
@@ -285,6 +301,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setSleepUntil(Date.now() + minutes * 60_000);
       setSleepRemaining(minutes * 60);
     }
+  }, []);
+
+  const setSleepRepeat = useCallback((repeat: boolean) => {
+    setSleepRepeatState(repeat);
+    localStorage.setItem(SLEEP_REPEAT_KEY, repeat ? '1' : '0');
+  }, []);
+
+  // Check-in mode: every press of play re-arms the timer to its full
+  // duration, so falling asleep costs at most one interval.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onPlay = () => {
+      const minutes = sleepMinutesRef.current;
+      if (sleepRepeatRef.current && minutes != null) {
+        setSleepUntil(Date.now() + minutes * 60_000);
+        setSleepRemaining(minutes * 60);
+      }
+    };
+    audio.addEventListener('play', onPlay);
+    return () => audio.removeEventListener('play', onPlay);
   }, []);
 
   // Sleep timer: count down, then fade out over ~5s and pause.
@@ -299,6 +336,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       window.clearInterval(tick);
       setSleepUntil(null);
       setSleepRemaining(null);
+      // One-shot timers disarm on expiry; check-in timers stay armed and
+      // re-start the countdown on the next play.
+      if (!sleepRepeatRef.current) {
+        sleepMinutesRef.current = null;
+        setSleepMinutes(null);
+      }
       const audio = audioRef.current;
       if (!audio || audio.paused) return; // expired while already paused
       const startVolume = audio.volume;
@@ -373,12 +416,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       rate,
       offlineSource,
       sleepRemaining,
+      sleepMinutes,
+      sleepRepeat,
       play,
       toggle,
       seek,
       skip,
       setRate,
       setSleepTimer,
+      setSleepRepeat,
     }),
     [
       episode,
@@ -388,12 +434,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       rate,
       offlineSource,
       sleepRemaining,
+      sleepMinutes,
+      sleepRepeat,
       play,
       toggle,
       seek,
       skip,
       setRate,
       setSleepTimer,
+      setSleepRepeat,
     ],
   );
 
