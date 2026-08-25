@@ -341,6 +341,15 @@ async function main() {
   await page.waitForSelector('.full-player', { state: 'detached' });
   console.log('PASS full-screen player');
 
+  // ---- Show notes from the full player navigates to episode detail ----
+  await page.click('.player-bar .player-info');
+  await page.waitForSelector('.full-player');
+  await page.click('.fp-notes');
+  await page.waitForSelector('.full-player', { state: 'detached' });
+  await page.waitForFunction(() => location.pathname === '/episodes/101');
+  await page.waitForFunction(() => document.body.textContent.includes('Show notes'));
+  console.log('PASS show notes from full player');
+
   // ---- last-played restore: reload should cue the episode, paused ----
   await new Promise((r) => setTimeout(r, 500)); // let last-played write settle
   await page.reload();

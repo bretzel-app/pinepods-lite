@@ -1,5 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { usePlayer } from './PlayerContext';
+import { useAccounts } from '../lib/accounts';
+import { cacheSet } from '../lib/db';
 import { formatDuration } from '../lib/format';
 import { PauseIcon, PlayIcon, SkipBackIcon, SkipFwdIcon } from '../components/icons';
 
@@ -8,6 +10,7 @@ const RATES = [1, 1.25, 1.5, 1.75, 2, 0.75];
 export default function FullPlayer({ onClose }: { onClose: () => void }) {
   const { episode, playing, position, duration, rate, offlineSource, toggle, seek, skip, setRate } =
     usePlayer();
+  const { active } = useAccounts();
   const navigate = useNavigate();
 
   if (!episode) return null;
@@ -20,6 +23,8 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
   };
 
   const openDetail = () => {
+    // Prime the cache so the detail page renders offline / on hard refresh.
+    if (active) void cacheSet(active.id, `episode:${episode.episodeid}`, episode);
     onClose();
     navigate(`/episodes/${episode.episodeid}`, { state: { episode } });
   };
@@ -73,12 +78,14 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
         <button className="icon-btn big" onClick={() => skip(30)} title="Forward 30s">
           <SkipFwdIcon />
         </button>
-        <button className="icon-btn" onClick={openDetail} title="Show notes">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M5 5h14M5 10h14M5 15h9" />
-          </svg>
-        </button>
       </div>
+
+      <button className="btn secondary fp-notes" onClick={openDetail}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ width: 16, height: 16 }}>
+          <path d="M5 5h14M5 10h14M5 15h9" />
+        </svg>
+        Show notes
+      </button>
     </div>
   );
 }

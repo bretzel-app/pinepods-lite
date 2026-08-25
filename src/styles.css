@@ -828,3 +828,12 @@ a {
   border: 1px solid var(--border);
   padding: 4px 8px;
 }
+
+.fp-notes {
+  margin-top: 16px;
+}
+
+.fp-title:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--text-dim);
+}
