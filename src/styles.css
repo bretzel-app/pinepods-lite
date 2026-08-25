@@ -332,7 +332,9 @@ a {
 .progress-track {
   height: 3px;
   border-radius: 2px;
-  background: var(--border);
+  /* Clearly lighter than the row background so the unplayed remainder of
+     the bar is visible, not just the filled part. */
+  background: rgba(154, 160, 176, 0.35);
   margin-top: 7px;
   overflow: hidden;
   max-width: 220px;
@@ -473,13 +475,6 @@ a {
   font-size: 11px;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
-  display: none;
-}
-
-@media (min-width: 560px) {
-  .player-time {
-    display: block;
-  }
 }
 
 /* ---- forms / login ---- */

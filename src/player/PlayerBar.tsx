@@ -40,8 +40,8 @@ export default function PlayerBar() {
             {offlineSource ? ' · offline copy' : ''}
           </div>
         </div>
-        <div className="player-time">
-          {formatDuration(position)} / {formatDuration(total)}
+        <div className="player-time" title="Time remaining">
+          -{formatDuration(Math.max(0, total - position))}
         </div>
         <div className="player-controls">
           <button className="icon-btn" onClick={() => skip(-15)} title="Back 15s">
