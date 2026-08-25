@@ -78,6 +78,8 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
         <button className="icon-btn big" onClick={() => skip(30)} title="Forward 30s">
           <SkipFwdIcon />
         </button>
+        {/* Invisible twin of the speed button so the play button stays centered. */}
+        <span className="icon-btn" style={{ visibility: 'hidden' }} aria-hidden="true" />
       </div>
 
       <button className="btn secondary fp-notes" onClick={openDetail}>
