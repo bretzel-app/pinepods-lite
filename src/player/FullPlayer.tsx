@@ -70,7 +70,7 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
 
       {transcriptOpen ? (
         <div className="fp-transcript">
-          <TranscriptView episode={episode} autoScroll />
+          <TranscriptView episode={episode} autoScroll readOnly />
         </div>
       ) : (
         <div className="full-player-art">

@@ -17,9 +17,11 @@ interface Props {
   /** Keep the active line in view inside the nearest scroll container.
    * Only safe when the view has its own scroll pane (the full player). */
   autoScroll?: boolean;
+  /** Plain reading view: no timestamps, no tap-to-seek (the full player). */
+  readOnly?: boolean;
 }
 
-export default function TranscriptView({ episode, autoScroll }: Props) {
+export default function TranscriptView({ episode, autoScroll, readOnly }: Props) {
   const account = useActiveAccount();
   const player = usePlayer();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -103,7 +105,7 @@ export default function TranscriptView({ episode, autoScroll }: Props) {
   }
 
   const onLineClick = (segment: TranscriptSegment) => {
-    if (segment.start == null) return;
+    if (readOnly || segment.start == null) return;
     void player.play(episode, segment.start);
   };
 
@@ -112,10 +114,10 @@ export default function TranscriptView({ episode, autoScroll }: Props) {
       {segments.map((segment, i) => (
         <div
           key={i}
-          className={`transcript-line${i === activeIndex ? ' active' : ''}${segment.start != null ? ' seekable' : ''}`}
+          className={`transcript-line${i === activeIndex ? ' active' : ''}${!readOnly && segment.start != null ? ' seekable' : ''}`}
           onClick={() => onLineClick(segment)}
         >
-          {segment.start != null && (
+          {!readOnly && segment.start != null && (
             <span className="transcript-time">{formatDuration(segment.start)}</span>
           )}
           <span className="transcript-text">
