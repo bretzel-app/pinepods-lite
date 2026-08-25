@@ -263,8 +263,8 @@ async function main() {
   await page.fill('#password', 'pw');
   await page.click('button[type=submit]');
   await page.waitForSelector('.page-title');
-  const homeText = await page.textContent('body');
-  if (!homeText.includes('Episode One')) throw new Error('Home missing episodes');
+  // Fresh profile: no cache yet, so wait for the first feed fetch to render.
+  await page.waitForFunction(() => document.body.textContent.includes('Episode One'));
   await page.waitForSelector('.continue-listening');
   const contText = await page.textContent('.continue-listening');
   if (!contText.includes('Episode One')) throw new Error('Continue listening missing Episode One');
