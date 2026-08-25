@@ -45,7 +45,7 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className="full-player-meta">
-        <button className="fp-title" onClick={openDetail} title="Show notes">
+        <button className="fp-title" onClick={openDetail} title="Show details">
           {episode.episodetitle}
         </button>
         <div className="fp-podcast">{episode.podcastname}</div>
@@ -84,7 +84,7 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ width: 16, height: 16 }}>
           <path d="M5 5h14M5 10h14M5 15h9" />
         </svg>
-        Show notes
+        Show details
       </button>
     </div>
   );

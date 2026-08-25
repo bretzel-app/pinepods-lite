@@ -304,7 +304,7 @@ async function main() {
     .locator('.episode-main')
     .click();
   await page.waitForFunction(() => location.pathname.startsWith('/episodes/'));
-  await page.waitForFunction(() => document.body.textContent.includes('Show notes'));
+  await page.waitForFunction(() => document.body.textContent.includes('Description'));
   const detailBody = await page.textContent('body');
   if (!detailBody.includes('First test episode')) throw new Error('Detail missing description');
   console.log('PASS episode detail page');
@@ -341,13 +341,13 @@ async function main() {
   await page.waitForSelector('.full-player', { state: 'detached' });
   console.log('PASS full-screen player');
 
-  // ---- Show notes from the full player navigates to episode detail ----
+  // ---- Show details from the full player navigates to episode detail ----
   await page.click('.player-bar .player-info');
   await page.waitForSelector('.full-player');
   await page.click('.fp-notes');
   await page.waitForSelector('.full-player', { state: 'detached' });
   await page.waitForFunction(() => location.pathname === '/episodes/101');
-  await page.waitForFunction(() => document.body.textContent.includes('Show notes'));
+  await page.waitForFunction(() => document.body.textContent.includes('Description'));
   console.log('PASS show notes from full player');
 
   // ---- last-played restore: reload should cue the episode, paused ----

@@ -193,7 +193,7 @@ export default function EpisodeDetail() {
         </button>
       </div>
 
-      <h2 style={{ fontSize: 15, margin: '20px 0 8px' }}>Show notes</h2>
+      <h2 style={{ fontSize: 15, margin: '20px 0 8px' }}>Description</h2>
       {looksLikeHtml(description) ? (
         <div className="shownotes" dangerouslySetInnerHTML={{ __html: sanitizeHtml(description) }} />
       ) : (
