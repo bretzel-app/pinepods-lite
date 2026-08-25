@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useActiveAccount } from '../lib/accounts';
 import { addPodcast, getSubscribedPodcasts, searchPodcasts } from '../lib/api';
 import type { SearchResult } from '../lib/types';
 import { useCached } from '../lib/useCached';
-import { cacheSet } from '../lib/db';
+import { cacheGet, cacheSet } from '../lib/db';
 import { CheckIcon, PlusIcon, SearchIcon } from '../components/icons';
 import { useOnline } from '../components/Layout';
 
@@ -21,14 +21,27 @@ export default function Search() {
   const subs = useCached(account.id, 'podcasts', () => getSubscribedPodcasts(account));
   const subscribedFeeds = new Set((subs.data ?? []).map((p) => p.feedurl));
 
+  // Restore the last search so navigating into a podcast and back (or an
+  // app restart) doesn't lose the results.
+  useEffect(() => {
+    cacheGet<{ query: string; results: SearchResult[] }>(account.id, 'last-search').then((s) => {
+      if (s) {
+        setQuery(s.query);
+        setResults(s.results);
+      }
+    });
+  }, [account.id]);
+
   const onSearch = async (e: FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      const found = await searchPodcasts(account, query.trim());
+      const q = query.trim();
+      const found = await searchPodcasts(account, q);
       setResults(found);
+      void cacheSet(account.id, 'last-search', { query: q, results: found });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -85,7 +98,14 @@ export default function Search() {
           disabled={!online}
         />
         <button className="btn" type="submit" disabled={busy || !online}>
-          {busy ? <span className="spinner" /> : <SearchIcon className="" />}
+          {busy ? (
+            <span className="spinner" />
+          ) : (
+            <>
+              <SearchIcon />
+              Search
+            </>
+          )}
         </button>
       </form>
       {!online && <div className="notice">Search needs a connection.</div>}

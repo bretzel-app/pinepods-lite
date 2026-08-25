@@ -363,7 +363,17 @@ async function main() {
   await page.waitForFunction(() => location.pathname === '/podcasts/2', null, { timeout: 15000 });
   await page.waitForFunction(() => document.body.textContent.includes('Episode One'));
   console.log('PASS subscribe from preview');
+
+  // ---- search state survives navigating away and back ----
   await page.click('nav.sidebar a[href="/search"]');
+  await page.waitForFunction(() => document.body.textContent.includes('Found Cast'), null, {
+    timeout: 10000,
+  });
+  const restoredQuery = await page.inputValue('input[type=search]');
+  if (restoredQuery !== 'found') throw new Error(`Search query not restored: "${restoredQuery}"`);
+  const btnText = await page.textContent('.searchbar button');
+  if (!btnText.includes('Search')) throw new Error('Search button has no label');
+  console.log('PASS search state restored after navigation');
 
   // ---- saved page ----
   await page.click('nav.sidebar a[href="/saved"]');
