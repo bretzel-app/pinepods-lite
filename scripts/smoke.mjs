@@ -128,6 +128,7 @@ async function main() {
   const errors = [];
   let completedCalls = 0;
   let uncompletedCalls = 0;
+  let sweepCompleted103 = false;
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(`console: ${m.text()}`);
@@ -192,7 +193,10 @@ async function main() {
     if (p === '/api/data/get_episode_metadata') {
       const body = route.request().postDataJSON();
       const ep = episodes.find((e) => e.episodeid === body.episode_id);
-      return ep ? json({ episode: ep }) : route.fulfill({ status: 404, json: {} });
+      if (!ep) return route.fulfill({ status: 404, json: {} });
+      // Simulates "finished on another device" for the sweep test.
+      const completed = ep.episodeid === 103 && sweepCompleted103 ? true : ep.completed;
+      return json({ episode: { ...ep, completed } });
     }
     if (p === '/api/data/save_episode' || p === '/api/data/remove_saved_episode')
       return json({ detail: 'ok' });
@@ -347,6 +351,41 @@ async function main() {
   const playBtnTitle = await page.getAttribute('.player-bar .play', 'title');
   if (playBtnTitle !== 'Play') throw new Error('Restore must cue paused, ready to play');
   console.log('PASS last-played restore after reload (paused)');
+
+  // ---- startup sweep removes downloads completed on another device ----
+  // Inject a local download for Episode Three, verify it lists, then flip
+  // its server-side completed flag and reload: the sweep must delete it.
+  await page.evaluate(async (ep) => {
+    const accountId = localStorage.getItem('pinepods.activeAccountId');
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open('pinepods-offline');
+      req.onsuccess = () => {
+        const tx = req.result.transaction(['downloads', 'downloadBlobs'], 'readwrite');
+        const key = `${accountId}:${ep.episodeid}`;
+        tx.objectStore('downloads').put({
+          key,
+          accountId,
+          episode: ep,
+          mimeType: 'audio/wav',
+          size: 3,
+          downloadedAt: Date.now(),
+        });
+        tx.objectStore('downloadBlobs').put({ key, blob: new Blob([new Uint8Array(3)]) });
+        tx.oncomplete = () => resolve(undefined);
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }, episodes[2]);
+  await page.click('nav.sidebar a[href="/downloads"]');
+  await page.waitForFunction(() => document.body.textContent.includes('Episode Three'));
+  sweepCompleted103 = true;
+  await page.reload();
+  await page.waitForSelector('.page-title');
+  await page.waitForFunction(() => !document.body.textContent.includes('Episode Three'), null, {
+    timeout: 15000,
+  });
+  console.log('PASS startup sweep of completed downloads');
 
   // ---- accounts page: add a second account and switch ----
   await page.click('nav.sidebar a[href="/accounts"]');

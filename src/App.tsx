@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAccounts } from './lib/accounts';
 import { installSyncTriggers } from './lib/sync';
+import { sweepCompletedDownloads } from './lib/downloads';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Home from './pages/Home';
@@ -21,6 +22,15 @@ export default function App() {
     const activeRef = { current: active };
     activeRef.current = active;
     return installSyncTriggers(() => activeRef.current);
+  }, [active]);
+
+  // Once per account per session: drop local downloads the server says are
+  // completed (finished on another device).
+  const sweptRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!active || sweptRef.current.has(active.id)) return;
+    sweptRef.current.add(active.id);
+    void sweepCompletedDownloads(active);
   }, [active]);
 
   if (!ready) return null;

@@ -1,5 +1,5 @@
 import type { Account, Episode } from './types';
-import { deleteDownload, getDownload, putDownload } from './db';
+import { deleteDownload, getDownload, listDownloads, putDownload } from './db';
 import { getEpisodeMetadata, requestServerDownload, serverStreamUrl } from './api';
 
 /**
@@ -125,4 +125,28 @@ export async function downloadEpisode(account: Account, episode: Episode): Promi
 export async function removeDownloadedEpisode(account: Account, episodeId: number): Promise<void> {
   await deleteDownload(account.id, episodeId);
   notify();
+}
+
+/**
+ * Drop local downloads whose episodes are completed according to the server —
+ * catches episodes finished on another device. Runs on app start; finishing
+ * an episode in this client cleans up immediately via markCompleted instead.
+ */
+export async function sweepCompletedDownloads(account: Account): Promise<number> {
+  if (!navigator.onLine) return 0;
+  const entries = await listDownloads(account.id);
+  let removed = 0;
+  for (const entry of entries) {
+    try {
+      const meta = await getEpisodeMetadata(account, entry.episode.episodeid);
+      if (meta.completed) {
+        await deleteDownload(account.id, entry.episode.episodeid);
+        removed++;
+      }
+    } catch {
+      // Offline or transient server error — keep the download, retry next launch.
+    }
+  }
+  if (removed > 0) notify();
+  return removed;
 }
