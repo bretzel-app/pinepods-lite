@@ -902,3 +902,18 @@ a {
 .transcript-text {
   min-width: 0;
 }
+
+/* Transcript pane inside the full-screen player (replaces the artwork). */
+.fp-transcript {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 480px;
+  overflow-y: auto;
+  margin: 12px 0;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  background: var(--bg-raised);
+}

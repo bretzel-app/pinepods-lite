@@ -474,6 +474,16 @@ async function main() {
     return b && !/\d+m/.test(b.textContent);
   });
   console.log('PASS sleep timer set and cancel');
+
+  // Transcript inside the full player: toggle replaces artwork with lines.
+  await page.click('.full-player button[title="Transcript"]');
+  await page.waitForFunction(() =>
+    document.querySelector('.fp-transcript')?.textContent.includes('Hello transcript world'),
+  );
+  await page.click('.full-player button[title="Transcript"]');
+  await page.waitForSelector('.full-player-art');
+  console.log('PASS transcript in full player');
+
   await page.click('.full-player-top .icon-btn');
   await page.waitForSelector('.full-player', { state: 'detached' });
   console.log('PASS full-screen player');

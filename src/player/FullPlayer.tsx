@@ -5,6 +5,7 @@ import { useAccounts } from '../lib/accounts';
 import { cacheSet } from '../lib/db';
 import { formatDuration } from '../lib/format';
 import { MoonIcon, PauseIcon, PlayIcon, SkipBackIcon, SkipFwdIcon } from '../components/icons';
+import TranscriptView from '../components/TranscriptView';
 
 const RATES = [1, 1.25, 1.5, 1.75, 2, 0.75];
 const SLEEP_MINUTES = [15, 30, 45, 60];
@@ -27,6 +28,7 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
   const { active } = useAccounts();
   const navigate = useNavigate();
   const [sleepOpen, setSleepOpen] = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   if (!episode) return null;
 
@@ -52,12 +54,29 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
             <path d="m5 9 7 7 7-7" />
           </svg>
         </button>
-        {offlineSource && <span className="pill offline">playing offline copy</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {offlineSource && <span className="pill offline">playing offline copy</span>}
+          <button
+            className={`icon-btn${transcriptOpen ? ' active' : ''}`}
+            onClick={() => setTranscriptOpen((o) => !o)}
+            title="Transcript"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M5 6h14M5 10h14M5 14h10M5 18h7" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <div className="full-player-art">
-        {episode.episodeartwork ? <img src={episode.episodeartwork} alt="" /> : <div className="art-placeholder" />}
-      </div>
+      {transcriptOpen ? (
+        <div className="fp-transcript">
+          <TranscriptView episode={episode} autoScroll />
+        </div>
+      ) : (
+        <div className="full-player-art">
+          {episode.episodeartwork ? <img src={episode.episodeartwork} alt="" /> : <div className="art-placeholder" />}
+        </div>
+      )}
 
       <div className="full-player-meta">
         <button className="fp-title" onClick={openDetail} title="Show details">

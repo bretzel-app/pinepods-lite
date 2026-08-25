@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Episode } from '../lib/types';
 import { useActiveAccount } from '../lib/accounts';
 import { fetchTranscriptContent, getEpisodeTranscriptSources } from '../lib/api';
@@ -12,9 +12,18 @@ import { formatDuration } from '../lib/format';
  * jump, with the current line highlighted while this episode plays. Parsed
  * segments are cached per account so the transcript reads fine offline.
  */
-export default function TranscriptView({ episode }: { episode: Episode }) {
+interface Props {
+  episode: Episode;
+  /** Keep the active line in view inside the nearest scroll container.
+   * Only safe when the view has its own scroll pane (the full player). */
+  autoScroll?: boolean;
+}
+
+export default function TranscriptView({ episode, autoScroll }: Props) {
   const account = useActiveAccount();
   const player = usePlayer();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const lastUserScrollRef = useRef(0);
 
   const transcript = useCached<TranscriptSegment[] | null>(
     account.id,
@@ -56,6 +65,33 @@ export default function TranscriptView({ episode }: { episode: Episode }) {
     return idx;
   }, [segments, isCurrent, player.position]);
 
+  // Follow the audio, but yield to the reader: a manual scroll pauses
+  // auto-follow for a few seconds.
+  useEffect(() => {
+    if (!autoScroll || activeIndex < 0) return;
+    if (Date.now() - lastUserScrollRef.current < 5000) return;
+    const container = containerRef.current?.parentElement;
+    const line = containerRef.current?.children[activeIndex] as HTMLElement | undefined;
+    if (!container || !line) return;
+    const target = line.offsetTop - container.clientHeight / 3;
+    container.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+  }, [autoScroll, activeIndex]);
+
+  useEffect(() => {
+    if (!autoScroll) return;
+    const container = containerRef.current?.parentElement;
+    if (!container) return;
+    const onWheel = () => {
+      lastUserScrollRef.current = Date.now();
+    };
+    container.addEventListener('wheel', onWheel, { passive: true });
+    container.addEventListener('touchmove', onWheel, { passive: true });
+    return () => {
+      container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('touchmove', onWheel);
+    };
+  }, [autoScroll, transcript.data]);
+
   if (transcript.loading && !transcript.data) {
     return <div className="notice">Looking for a transcript…</div>;
   }
@@ -72,7 +108,7 @@ export default function TranscriptView({ episode }: { episode: Episode }) {
   };
 
   return (
-    <div className="transcript">
+    <div className="transcript" ref={containerRef}>
       {segments.map((segment, i) => (
         <div
           key={i}
