@@ -366,11 +366,18 @@ async function main() {
 
   // ---- search state survives navigating away and back ----
   await page.click('nav.sidebar a[href="/search"]');
-  await page.waitForFunction(() => document.body.textContent.includes('Found Cast'), null, {
-    timeout: 10000,
-  });
-  const restoredQuery = await page.inputValue('input[type=search]');
-  if (restoredQuery !== 'found') throw new Error(`Search query not restored: "${restoredQuery}"`);
+  // Wait on the input itself — 'Found Cast' also shows in the player bar,
+  // which would match before the async state restore completes.
+  await page.waitForFunction(
+    () => document.querySelector('input[type=search]')?.value === 'found',
+    null,
+    { timeout: 10000 },
+  );
+  await page.waitForFunction(
+    () => document.querySelector('.content')?.textContent.includes('Found Cast'),
+    null,
+    { timeout: 10000 },
+  );
   const btnText = await page.textContent('.searchbar button');
   if (!btnText.includes('Search')) throw new Error('Search button has no label');
   console.log('PASS search state restored after navigation');
