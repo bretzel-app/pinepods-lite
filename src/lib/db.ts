@@ -85,6 +85,11 @@ export async function putLocalPosition(pos: LocalPosition): Promise<void> {
   await db.put('positions', pos);
 }
 
+export async function listLocalPositions(accountId: string): Promise<LocalPosition[]> {
+  const db = await getDB();
+  return db.getAllFromIndex('positions', 'byAccount', accountId);
+}
+
 // ---- downloads -----------------------------------------------------------
 
 export async function listDownloads(accountId: string): Promise<DownloadEntry[]> {

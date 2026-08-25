@@ -25,6 +25,8 @@ export interface Episode {
   episodeduration: number;
   /** seconds listened, from the server */
   listenduration?: number | null;
+  /** when the server last saw this episode listened to (history rows only) */
+  listendate?: string | null;
   completed: boolean;
   saved: boolean;
   queued: boolean;

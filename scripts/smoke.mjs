@@ -40,6 +40,42 @@ const episodes = [
     is_youtube: false,
     is_video: false,
   },
+  {
+    podcastid: 1,
+    podcastname: 'Test Cast',
+    episodetitle: 'Episode Three',
+    episodepubdate: '2026-08-23T10:00:00',
+    episodedescription: 'Nearly finished episode',
+    episodeartwork: '',
+    episodeurl: `${SERVER}/audio/3.mp3`,
+    episodeduration: 1800,
+    listenduration: 1790,
+    episodeid: 103,
+    completed: false,
+    saved: false,
+    queued: false,
+    downloaded: false,
+    is_youtube: false,
+    is_video: false,
+  },
+  {
+    podcastid: 1,
+    podcastname: 'Test Cast',
+    episodetitle: 'Episode Four',
+    episodepubdate: '2026-08-21T10:00:00',
+    episodedescription: 'Only listened to offline',
+    episodeartwork: '',
+    episodeurl: `${SERVER}/audio/4.mp3`,
+    episodeduration: 2400,
+    listenduration: null,
+    episodeid: 104,
+    completed: false,
+    saved: false,
+    queued: false,
+    downloaded: false,
+    is_youtube: false,
+    is_video: false,
+  },
 ];
 
 const pods = [
@@ -106,7 +142,16 @@ async function main() {
       return json({ UserID: 7, Fullname: 'Fred Tester', Username: 'fred', Email: 'f@x.y' });
     if (p.startsWith('/api/data/return_pods/')) return json({ pods });
     if (p.startsWith('/api/data/return_episodes/')) return json({ episodes, total: 2 });
-    if (p.startsWith('/api/data/user_history/')) return json({ data: episodes, total: 2 });
+    if (p.startsWith('/api/data/user_history/'))
+      // History: the in-progress one and the nearly-finished one (should be
+      // filtered from Continue listening). Episode Four is deliberately absent.
+      return json({
+        data: [
+          { ...episodes[0], listendate: '2026-08-24T10:00:00' },
+          { ...episodes[2], listendate: '2026-08-23T10:00:00' },
+        ],
+        total: 2,
+      });
     if (p.startsWith('/api/data/saved_episode_list/'))
       return json({ saved_episodes: [episodes[1]], total: 1 });
     if (p === '/api/data/podcast_episodes')
@@ -167,8 +212,46 @@ async function main() {
   await page.waitForSelector('.page-title');
   const homeText = await page.textContent('body');
   if (!homeText.includes('Episode One')) throw new Error('Home missing episodes');
-  if (!homeText.includes('Continue listening')) throw new Error('No continue-listening section');
-  console.log('PASS login + home feed');
+  await page.waitForSelector('.continue-listening');
+  const contText = await page.textContent('.continue-listening');
+  if (!contText.includes('Episode One')) throw new Error('Continue listening missing Episode One');
+  if (contText.includes('Episode Three'))
+    throw new Error('Nearly-finished episode not filtered from Continue listening');
+  console.log('PASS login + home feed + finished-episode filter');
+
+  // ---- offline-only progress shows in Continue listening ----
+  // Simulate listening done offline: a local position for an episode the
+  // server history doesn't know about (Episode Four).
+  await page.evaluate(async () => {
+    const accountId = localStorage.getItem('pinepods.activeAccountId');
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open('pinepods-offline');
+      req.onsuccess = () => {
+        const tx = req.result.transaction('positions', 'readwrite');
+        tx.objectStore('positions').put({
+          key: `${accountId}:104`,
+          accountId,
+          episodeId: 104,
+          seconds: 500,
+          duration: 2400,
+          updatedAt: Date.now(),
+          synced: false,
+        });
+        tx.oncomplete = () => resolve(undefined);
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  });
+  // Leave and re-enter Home so the list rebuilds.
+  await page.click('nav.sidebar a[href="/saved"]');
+  await page.click('nav.sidebar a[href="/"]');
+  await page.waitForFunction(
+    () => document.querySelector('.continue-listening')?.textContent.includes('Episode Four'),
+    null,
+    { timeout: 10000 },
+  );
+  console.log('PASS offline progress merged into Continue listening');
 
   // ---- podcasts page + detail (capitalized keys path) ----
   await page.click('nav.sidebar a[href="/podcasts"]');
@@ -201,7 +284,11 @@ async function main() {
   console.log('PASS favorite toggle');
 
   // ---- episode detail page (row click navigates) ----
-  await page.click('.episode-row .episode-main');
+  await page
+    .locator('.episode-row', { hasText: 'Episode One' })
+    .first()
+    .locator('.episode-main')
+    .click();
   await page.waitForFunction(() => location.pathname.startsWith('/episodes/'));
   await page.waitForFunction(() => document.body.textContent.includes('Show notes'));
   const detailBody = await page.textContent('body');

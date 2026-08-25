@@ -137,6 +137,7 @@ export function normalizeEpisode(raw: Record<string, unknown>): Episode {
     episodeurl: String(r.episodeurl ?? ''),
     episodeduration: Number(r.episodeduration ?? 0),
     listenduration: r.listenduration != null ? Number(r.listenduration) : null,
+    listendate: r.listendate != null ? String(r.listendate) : null,
     completed: Boolean(r.completed),
     saved: Boolean(r.saved),
     queued: Boolean(r.queued),
