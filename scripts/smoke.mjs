@@ -303,6 +303,17 @@ async function main() {
     throw new Error('Nearly-finished episode not filtered from Continue listening');
   console.log('PASS login + home feed + finished-episode filter');
 
+  // ---- Unplayed filter on Home's latest episodes ----
+  await page.click('.segmented button:has-text("Unplayed")');
+  await page.waitForFunction(
+    () => !document.querySelector('.content').textContent.includes('Episode Three'),
+  );
+  await page.click('.segmented button:has-text("All")');
+  await page.waitForFunction(
+    () => document.querySelector('.content').textContent.includes('Episode Three'),
+  );
+  console.log('PASS unplayed filter on home');
+
   // ---- offline-only progress shows in Continue listening ----
   // Simulate listening done offline: a local position for an episode the
   // server history doesn't know about (Episode Four).

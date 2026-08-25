@@ -7,8 +7,7 @@ import { cacheSet } from '../lib/db';
 import { stripHtml } from '../lib/format';
 import { isEffectivelyFinished } from '../lib/continueListening';
 import EpisodeRow from '../components/EpisodeRow';
-
-const HIDE_PLAYED_KEY = 'pinepods.hidePlayed';
+import { PlayedFilter, useHidePlayed } from '../components/PlayedFilter';
 
 export default function PodcastDetail() {
   const account = useActiveAccount();
@@ -29,13 +28,7 @@ export default function PodcastDetail() {
     return episodes;
   });
 
-  const [hidePlayed, setHidePlayedState] = useState(
-    () => localStorage.getItem(HIDE_PLAYED_KEY) === '1',
-  );
-  const setHidePlayed = (value: boolean) => {
-    localStorage.setItem(HIDE_PLAYED_KEY, value ? '1' : '0');
-    setHidePlayedState(value);
-  };
+  const [hidePlayed, setHidePlayed] = useHidePlayed();
 
   // Same "effectively finished" rule as Continue listening: completed flag,
   // under a minute remaining, or >= 98% played.
@@ -80,14 +73,7 @@ export default function PodcastDetail() {
 
       <div className="list-toolbar">
         <h2>Episodes</h2>
-        <div className="segmented">
-          <button className={!hidePlayed ? 'on' : ''} onClick={() => setHidePlayed(false)}>
-            All
-          </button>
-          <button className={hidePlayed ? 'on' : ''} onClick={() => setHidePlayed(true)}>
-            Unplayed
-          </button>
-        </div>
+        <PlayedFilter value={hidePlayed} onChange={setHidePlayed} />
       </div>
 
       {eps.refreshing && <div className="notice">Refreshing episodes…</div>}
