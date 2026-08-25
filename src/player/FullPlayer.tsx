@@ -8,7 +8,7 @@ import { MoonIcon, PauseIcon, PlayIcon, SkipBackIcon, SkipFwdIcon } from '../com
 import TranscriptView from '../components/TranscriptView';
 
 const RATES = [1, 1.25, 1.5, 1.75, 2, 0.75];
-const SLEEP_MINUTES = [15, 30, 45, 60];
+const SLEEP_MINUTES = [5, 15, 30, 45, 60];
 
 export default function FullPlayer({ onClose }: { onClose: () => void }) {
   const {
