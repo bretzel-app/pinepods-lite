@@ -112,6 +112,14 @@ export const CloudOffIcon = ({ className }: IconProps) => (
   </svg>
 );
 
+export const MoreIcon = ({ className }: IconProps) => (
+  <svg {...base} fill="currentColor" stroke="none" className={className}>
+    <circle cx="12" cy="5.5" r="1.7" />
+    <circle cx="12" cy="12" r="1.7" />
+    <circle cx="12" cy="18.5" r="1.7" />
+  </svg>
+);
+
 export const MoonIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z" />

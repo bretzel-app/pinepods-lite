@@ -401,11 +401,26 @@ async function main() {
   await page.waitForFunction(() => document.body.textContent.includes('Episode Two'));
   console.log('PASS saved list');
 
-  // ---- favorite toggle (optimistic) ----
+  // ---- action sheet: save + mark played/unplayed from the list ----
   await page.click('nav.sidebar a[href="/"]');
   await page.waitForSelector('.episode-row');
-  await page.click('.episode-row .episode-actions button[title="Add to favorites"]');
-  console.log('PASS favorite toggle');
+  await page.click('.episode-row button[title="More"]');
+  await page.waitForSelector('.action-sheet');
+  await page.click('.action-sheet button:has-text("Save")');
+  await page.waitForSelector('.action-sheet', { state: 'detached' });
+  console.log('PASS favorite toggle via action sheet');
+
+  await page.click('.episode-row button[title="More"]');
+  await page.click('.action-sheet button:has-text("Mark played")');
+  // Full progress bar is the played indicator now.
+  await page.waitForFunction(
+    () => document.querySelector('.episode-row .progress-fill')?.style.width === '100%',
+  );
+  if (completedCalls < 1) throw new Error('mark_episode_completed not called from sheet');
+  await page.click('.episode-row button[title="More"]');
+  await page.click('.action-sheet button:has-text("Mark unplayed")');
+  await page.waitForSelector('.action-sheet', { state: 'detached' });
+  console.log('PASS mark played/unplayed via action sheet');
 
   // ---- episode detail page (row click navigates) ----
   await page
@@ -424,6 +439,7 @@ async function main() {
   // Mark played button flips to Mark unplayed.
   await page.locator('.detail-actions button', { hasText: 'Download' }).click();
   await page.waitForSelector('.detail-actions button:has-text("Remove download")');
+  const completedBeforeFinish = completedCalls;
   await page.click('.detail-actions .btn'); // Play/Resume
   await page.waitForSelector('.detail-actions button:has-text("Mark unplayed")', {
     timeout: 15000,
@@ -431,7 +447,8 @@ async function main() {
   await page.waitForSelector('.detail-actions button:has-text("Remove download")', {
     state: 'detached',
   });
-  if (completedCalls < 1) throw new Error('mark_episode_completed was not called on finish');
+  if (completedCalls <= completedBeforeFinish)
+    throw new Error('mark_episode_completed was not called on finish');
   console.log('PASS auto-complete + auto-remove download on finish');
 
   // ---- manual mark unplayed / played toggle ----
