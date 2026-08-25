@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Episode } from '../lib/types';
 import { useActiveAccount } from '../lib/accounts';
 import { usePlayer } from '../player/PlayerContext';
 import { formatDate, formatDuration, stripHtml } from '../lib/format';
-import { getDownload, getLocalPosition } from '../lib/db';
+import { cacheSet, getDownload, getLocalPosition } from '../lib/db';
 import {
   downloadEpisode,
   getDownloadProgress,
@@ -25,6 +26,7 @@ interface Props {
 export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
   const account = useActiveAccount();
   const player = usePlayer();
+  const navigate = useNavigate();
   const [saved, setSaved] = useState(episode.saved);
   const [localDownload, setLocalDownload] = useState(false);
   const [progress, setProgress] = useState<number | undefined>(undefined);
@@ -76,6 +78,12 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
     else void player.play(episode);
   };
 
+  const openDetail = () => {
+    // Prime the cache so the detail page renders offline / on hard refresh.
+    void cacheSet(account.id, `episode:${episode.episodeid}`, episode);
+    navigate(`/episodes/${episode.episodeid}`, { state: { episode } });
+  };
+
   const onToggleSave = useCallback(() => {
     const next = !saved;
     setSaved(next);
@@ -103,11 +111,11 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
   return (
     <div className="episode-row">
       {episode.episodeartwork ? (
-        <img className="artwork" src={episode.episodeartwork} alt="" onClick={onPlay} loading="lazy" />
+        <img className="artwork" src={episode.episodeartwork} alt="" onClick={openDetail} loading="lazy" />
       ) : (
-        <div className="artwork" onClick={onPlay} />
+        <div className="artwork" onClick={openDetail} />
       )}
-      <div className="episode-main" onClick={onPlay}>
+      <div className="episode-main" onClick={openDetail}>
         <div className={`episode-title${episode.completed ? ' played' : ''}`}>
           {episode.episodetitle}
         </div>

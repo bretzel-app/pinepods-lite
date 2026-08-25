@@ -60,6 +60,27 @@ const pods = [
   },
 ];
 
+/** 1-second silent PCM WAV, enough for the <audio> element to actually play. */
+function tinyWav() {
+  const sampleRate = 8000;
+  const n = sampleRate;
+  const buf = Buffer.alloc(44 + n * 2);
+  buf.write('RIFF', 0);
+  buf.writeUInt32LE(36 + n * 2, 4);
+  buf.write('WAVE', 8);
+  buf.write('fmt ', 12);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(sampleRate, 24);
+  buf.writeUInt32LE(sampleRate * 2, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write('data', 36);
+  buf.writeUInt32LE(n * 2, 40);
+  return buf;
+}
+
 async function main() {
   // The pinned browser build may differ from this Playwright version's; fall
   // back to the environment's chromium binary when the default is missing.
@@ -119,6 +140,13 @@ async function main() {
           },
         ],
       });
+    if (p.startsWith('/audio/'))
+      return route.fulfill({ body: tinyWav(), contentType: 'audio/wav' });
+    if (p === '/api/data/get_episode_metadata') {
+      const body = route.request().postDataJSON();
+      const ep = episodes.find((e) => e.episodeid === body.episode_id);
+      return ep ? json({ episode: ep }) : route.fulfill({ status: 404, json: {} });
+    }
     if (p === '/api/data/save_episode' || p === '/api/data/remove_saved_episode')
       return json({ detail: 'ok' });
     if (p === '/api/data/record_listen_duration') return json({ detail: 'ok' });
@@ -171,6 +199,36 @@ async function main() {
   await page.waitForSelector('.episode-row');
   await page.click('.episode-row .episode-actions button[title="Add to favorites"]');
   console.log('PASS favorite toggle');
+
+  // ---- episode detail page (row click navigates) ----
+  await page.click('.episode-row .episode-main');
+  await page.waitForFunction(() => location.pathname.startsWith('/episodes/'));
+  await page.waitForFunction(() => document.body.textContent.includes('Show notes'));
+  const detailBody = await page.textContent('body');
+  if (!detailBody.includes('First test episode')) throw new Error('Detail missing description');
+  console.log('PASS episode detail page');
+
+  // ---- play from detail, then full-screen player ----
+  await page.click('.detail-actions .btn');
+  await page.waitForSelector('.player-bar');
+  await page.click('.player-bar .player-info');
+  await page.waitForSelector('.full-player');
+  const fp = await page.textContent('.full-player');
+  if (!fp.includes('Episode One')) throw new Error('Full player missing episode');
+  await page.click('.full-player-top .icon-btn');
+  await page.waitForSelector('.full-player', { state: 'detached' });
+  console.log('PASS full-screen player');
+
+  // ---- last-played restore: reload should cue the episode, paused ----
+  await new Promise((r) => setTimeout(r, 500)); // let last-played write settle
+  await page.reload();
+  await page.waitForSelector('.player-bar', { timeout: 10000 });
+  const bar = await page.textContent('.player-bar');
+  if (!bar.includes('Episode One')) throw new Error('Last-played episode not restored');
+  // The audio element lives off-DOM, so assert paused state via the button.
+  const playBtnTitle = await page.getAttribute('.player-bar .play', 'title');
+  if (playBtnTitle !== 'Play') throw new Error('Restore must cue paused, ready to play');
+  console.log('PASS last-played restore after reload (paused)');
 
   // ---- accounts page: add a second account and switch ----
   await page.click('nav.sidebar a[href="/accounts"]');

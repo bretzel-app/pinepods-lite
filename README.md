@@ -12,6 +12,9 @@ things the official apps are missing:
 - **The basics, done simply** — find a podcast, subscribe, play/resume (position synced with
   the server), download episodes for offline listening, favorite episodes. No queue, no
   fancy extras.
+- **Pick-up-and-play** — on launch the player cues your last-played episode, paused at its
+  resume point: one tap on Play continues. Episode rows open a detail page with full show
+  notes; tapping the player bar expands a full-screen player.
 
 ## Running it
 

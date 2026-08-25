@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Home from './pages/Home';
 import Podcasts from './pages/Podcasts';
 import PodcastDetail from './pages/PodcastDetail';
+import EpisodeDetail from './pages/EpisodeDetail';
 import Search from './pages/Search';
 import Saved from './pages/Saved';
 import Downloads from './pages/Downloads';
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/podcasts" element={<Podcasts />} />
         <Route path="/podcasts/:podcastId" element={<PodcastDetail />} />
+        <Route path="/episodes/:episodeId" element={<EpisodeDetail />} />
         <Route path="/search" element={<Search />} />
         <Route path="/saved" element={<Saved />} />
         <Route path="/downloads" element={<Downloads />} />

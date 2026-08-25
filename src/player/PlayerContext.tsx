@@ -9,12 +9,13 @@ import {
   type ReactNode,
 } from 'react';
 import type { Account, Episode } from '../lib/types';
-import { getDownloadBlob, getLocalPosition, putLocalPosition } from '../lib/db';
+import { cacheGet, cacheSet, getDownloadBlob, getLocalPosition, putLocalPosition } from '../lib/db';
 import { recordListenDuration, serverStreamUrl } from '../lib/api';
 import { runOrQueue } from '../lib/sync';
 import { useAccounts } from '../lib/accounts';
 
 const SYNC_INTERVAL_MS = 15_000;
+const LAST_PLAYED_KEY = 'last-played';
 
 interface PlayerState {
   episode: Episode | null;
@@ -52,6 +53,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     audioRef.current.preload = 'metadata';
   }
 
+  const episodeRef = useRef<Episode | null>(null);
+  episodeRef.current = episode;
+
   const persistPosition = useCallback(async (seconds: number, markSynced: boolean) => {
     const account = playbackAccountRef.current;
     const ep = episodeRef.current;
@@ -67,18 +71,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const episodeRef = useRef<Episode | null>(null);
-  episodeRef.current = episode;
-
-  const syncToServer = useCallback(async (seconds: number) => {
-    const account = playbackAccountRef.current;
-    const ep = episodeRef.current;
-    if (!account || !ep || seconds <= 0) return;
-    await persistPosition(seconds, true);
-    await runOrQueue(account, { kind: 'record_position', episodeId: ep.episodeid, seconds }, () =>
-      recordListenDuration(account, ep.episodeid, seconds),
-    );
-  }, [persistPosition]);
+  const syncToServer = useCallback(
+    async (seconds: number) => {
+      const account = playbackAccountRef.current;
+      const ep = episodeRef.current;
+      if (!account || !ep || seconds <= 0) return;
+      await persistPosition(seconds, true);
+      await runOrQueue(account, { kind: 'record_position', episodeId: ep.episodeid, seconds }, () =>
+        recordListenDuration(account, ep.episodeid, seconds),
+      );
+    },
+    [persistPosition],
+  );
 
   // Wire up the audio element once.
   useEffect(() => {
@@ -141,25 +145,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [syncToServer]);
 
-  const play = useCallback(
-    async (ep: Episode) => {
+  /** Point the audio element at an episode and cue it at its resume point.
+   * With autoplay=false this only loads (used to restore the last-played
+   * episode on app start, so one tap on Play resumes). */
+  const loadEpisode = useCallback(
+    async (ep: Episode, account: Account, autoplay: boolean) => {
       const audio = audioRef.current;
-      if (!audio || !active) return;
-
-      // Same episode: just resume.
-      if (episodeRef.current?.episodeid === ep.episodeid && audio.src) {
-        void audio.play();
-        return;
-      }
+      if (!audio) return;
 
       // Flush the outgoing episode's position before switching.
-      if (episodeRef.current && audio.currentTime > 0) {
+      if (episodeRef.current && episodeRef.current.episodeid !== ep.episodeid && audio.currentTime > 0) {
         void syncToServer(audio.currentTime);
       }
 
-      playbackAccountRef.current = active;
+      playbackAccountRef.current = account;
       setEpisode(ep);
-      setPosition(0);
       setDuration(ep.episodeduration || 0);
 
       if (blobUrlRef.current) {
@@ -167,15 +167,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         blobUrlRef.current = null;
       }
 
-      // Source priority: local download → enclosure URL → server stream.
-      const blob = await getDownloadBlob(active.id, ep.episodeid);
+      // Source priority: local download → server-side copy → enclosure URL.
+      const blob = await getDownloadBlob(account.id, ep.episodeid);
       if (blob) {
         blobUrlRef.current = URL.createObjectURL(blob);
         audio.src = blobUrlRef.current;
         setOfflineSource(true);
       } else if (ep.downloaded) {
-        // Downloaded on the server — stream from there (also avoids dead CDN links).
-        audio.src = serverStreamUrl(active, ep.episodeid);
+        audio.src = serverStreamUrl(account, ep.episodeid);
         setOfflineSource(false);
       } else {
         audio.src = ep.episodeurl;
@@ -183,11 +182,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
 
       // Resume point: freshest of local (offline-safe) and server-known position.
-      const local = await getLocalPosition(active.id, ep.episodeid);
+      const local = await getLocalPosition(account.id, ep.episodeid);
       const serverSeconds = ep.listenduration ?? 0;
       let resumeAt = Math.max(local?.seconds ?? 0, serverSeconds);
       const total = ep.episodeduration || 0;
       if (ep.completed || (total > 0 && resumeAt > total - 15)) resumeAt = 0;
+      setPosition(resumeAt);
 
       audio.playbackRate = rate;
       if (resumeAt > 3) {
@@ -198,7 +198,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         };
         audio.addEventListener('loadedmetadata', apply);
       }
-      void audio.play();
+      if (autoplay) void audio.play();
 
       if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
@@ -208,8 +208,43 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [active, rate, syncToServer],
+    [rate, syncToServer],
   );
+
+  const play = useCallback(
+    async (ep: Episode) => {
+      const audio = audioRef.current;
+      if (!audio || !active) return;
+
+      // Same episode already cued and healthy: just resume.
+      if (episodeRef.current?.episodeid === ep.episodeid && audio.src && !audio.error) {
+        void audio.play();
+        return;
+      }
+
+      await loadEpisode(ep, active, true);
+      // Remember for next launch so one tap resumes where you left off.
+      void cacheSet(active.id, LAST_PLAYED_KEY, ep);
+    },
+    [active, loadEpisode],
+  );
+
+  // On app start (or when switching to an account while idle), cue up that
+  // account's last-played episode, paused at its resume point.
+  const restoredForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!active || episodeRef.current) return;
+    if (restoredForRef.current === active.id) return;
+    restoredForRef.current = active.id;
+    let cancelled = false;
+    cacheGet<Episode>(active.id, LAST_PLAYED_KEY).then((ep) => {
+      if (cancelled || !ep || episodeRef.current) return;
+      void loadEpisode(ep, active, false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, loadEpisode]);
 
   const toggle = useCallback(() => {
     const audio = audioRef.current;

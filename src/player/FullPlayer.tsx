@@ -1,0 +1,84 @@
+import { useNavigate } from 'react-router-dom';
+import { usePlayer } from './PlayerContext';
+import { formatDuration } from '../lib/format';
+import { PauseIcon, PlayIcon, SkipBackIcon, SkipFwdIcon } from '../components/icons';
+
+const RATES = [1, 1.25, 1.5, 1.75, 2, 0.75];
+
+export default function FullPlayer({ onClose }: { onClose: () => void }) {
+  const { episode, playing, position, duration, rate, offlineSource, toggle, seek, skip, setRate } =
+    usePlayer();
+  const navigate = useNavigate();
+
+  if (!episode) return null;
+
+  const total = duration || episode.episodeduration || 0;
+
+  const cycleRate = () => {
+    const idx = RATES.indexOf(rate);
+    setRate(RATES[(idx + 1) % RATES.length]);
+  };
+
+  const openDetail = () => {
+    onClose();
+    navigate(`/episodes/${episode.episodeid}`, { state: { episode } });
+  };
+
+  return (
+    <div className="full-player">
+      <div className="full-player-top">
+        <button className="icon-btn" onClick={onClose} title="Minimize player">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="m5 9 7 7 7-7" />
+          </svg>
+        </button>
+        {offlineSource && <span className="pill offline">playing offline copy</span>}
+      </div>
+
+      <div className="full-player-art">
+        {episode.episodeartwork ? <img src={episode.episodeartwork} alt="" /> : <div className="art-placeholder" />}
+      </div>
+
+      <div className="full-player-meta">
+        <button className="fp-title" onClick={openDetail} title="Show notes">
+          {episode.episodetitle}
+        </button>
+        <div className="fp-podcast">{episode.podcastname}</div>
+      </div>
+
+      <div className="full-player-seek">
+        <input
+          type="range"
+          min={0}
+          max={Math.max(1, Math.floor(total))}
+          value={Math.floor(position)}
+          onChange={(e) => seek(Number(e.target.value))}
+        />
+        <div className="fp-times">
+          <span>{formatDuration(position)}</span>
+          <span>-{formatDuration(Math.max(0, total - position))}</span>
+        </div>
+      </div>
+
+      <div className="full-player-controls">
+        <button className="icon-btn" onClick={cycleRate} title="Playback speed">
+          <span style={{ fontSize: 13, fontWeight: 700 }}>{rate}x</span>
+        </button>
+        <button className="icon-btn big" onClick={() => skip(-15)} title="Back 15s">
+          <SkipBackIcon />
+        </button>
+        <button className="fp-play" onClick={toggle} title={playing ? 'Pause' : 'Play'}>
+          {playing ? <PauseIcon /> : <PlayIcon />}
+        </button>
+        <button className="icon-btn big" onClick={() => skip(30)} title="Forward 30s">
+          <SkipFwdIcon />
+        </button>
+        <button className="icon-btn" onClick={openDetail} title="Show notes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M5 5h14M5 10h14M5 15h9" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
