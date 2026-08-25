@@ -235,6 +235,20 @@ async function main() {
           },
         ],
       });
+    if (p === '/api/data/fetch_podcasting_2_data')
+      return json({
+        chapters: [],
+        transcripts: [
+          { url: `${SERVER}/transcripts/ep1.srt`, mime_type: 'application/srt', language: 'en', rel: null },
+        ],
+        people: [],
+      });
+    if (p === '/api/data/fetch_transcript')
+      return json({
+        success: true,
+        content:
+          '1\n00:00:10,000 --> 00:00:14,000\nHello transcript world\n\n2\n00:00:14,000 --> 00:00:20,000\nSecond line here\n',
+      });
     if (p === '/api/data/get_episode_metadata') {
       const body = route.request().postDataJSON();
       const ep = episodes.find((e) => e.episodeid === body.episode_id);
@@ -425,6 +439,19 @@ async function main() {
   await page.waitForSelector('.detail-actions button:has-text("Mark played")');
   if (uncompletedCalls < 1) throw new Error('mark_episode_uncompleted was not called');
   console.log('PASS mark played/unplayed toggle');
+
+  // ---- transcript: load, render timestamped lines, tap to seek ----
+  await page.click('button:has-text("Show transcript")');
+  await page.waitForFunction(() =>
+    document.body.textContent.includes('Hello transcript world'),
+  );
+  const lineCount = await page.locator('.transcript-line').count();
+  if (lineCount !== 2) throw new Error(`Expected 2 transcript lines, got ${lineCount}`);
+  const chip = await page.textContent('.transcript-line .transcript-time');
+  if (chip.trim() !== '0:10') throw new Error(`Unexpected timestamp chip: ${chip}`);
+  await page.locator('.transcript-line').first().click();
+  await page.waitForSelector('.player-bar');
+  console.log('PASS transcript view with tap-to-seek');
 
   // ---- play from detail, then full-screen player ----
   await page.click('.detail-actions .btn');

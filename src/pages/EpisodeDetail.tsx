@@ -16,6 +16,7 @@ import {
 } from '../lib/downloads';
 import { runOrQueue } from '../lib/sync';
 import { markCompleted, markUncompleted } from '../lib/episodeActions';
+import TranscriptView from '../components/TranscriptView';
 import { CheckIcon, DownloadIcon, PauseIcon, PlayIcon, StarIcon, TrashIcon } from '../components/icons';
 
 export default function EpisodeDetail() {
@@ -36,6 +37,7 @@ export default function EpisodeDetail() {
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<number | undefined>(undefined);
   const [localSeconds, setLocalSeconds] = useState(0);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   useEffect(() => {
     if (episode && saved === null) setSaved(episode.saved);
@@ -192,6 +194,15 @@ export default function EpisodeDetail() {
           )}
         </button>
       </div>
+
+      <h2 style={{ fontSize: 15, margin: '20px 0 8px' }}>Transcript</h2>
+      {transcriptOpen ? (
+        <TranscriptView episode={episode} />
+      ) : (
+        <button className="btn secondary" onClick={() => setTranscriptOpen(true)}>
+          Show transcript
+        </button>
+      )}
 
       <h2 style={{ fontSize: 15, margin: '20px 0 8px' }}>Description</h2>
       {looksLikeHtml(description) ? (

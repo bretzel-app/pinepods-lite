@@ -287,6 +287,40 @@ export function previewEpisodeId(key: string): number {
   return -(Math.abs(h) || 1);
 }
 
+// ---- transcripts (Podcasting 2.0 feed transcripts) ------------------------------
+
+export interface TranscriptSource {
+  url: string | null;
+  mime_type: string | null;
+  language: string | null;
+  rel: string | null;
+}
+
+/** Transcript files the podcast's feed declares for this episode. */
+export async function getEpisodeTranscriptSources(
+  account: Account,
+  episodeId: number,
+): Promise<TranscriptSource[]> {
+  const body = await request<{ transcripts?: TranscriptSource[] }>(
+    account,
+    `/api/data/fetch_podcasting_2_data?episode_id=${episodeId}&user_id=${account.userId}`,
+  );
+  return (body.transcripts ?? []).filter((t) => t.url);
+}
+
+/** Download a transcript file through the server's CORS-friendly proxy. */
+export async function fetchTranscriptContent(
+  account: Account,
+  url: string,
+): Promise<string | null> {
+  const body = await request<{ success: boolean; content?: string }>(
+    account,
+    '/api/data/fetch_transcript',
+    { method: 'POST', body: JSON.stringify({ url }) },
+  );
+  return body.success && body.content ? body.content : null;
+}
+
 // ---- favorites (saved episodes) ------------------------------------------------
 
 export async function getSavedEpisodes(account: Account): Promise<Episode[]> {

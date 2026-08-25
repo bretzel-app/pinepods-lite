@@ -28,7 +28,7 @@ interface PlayerState {
   offlineSource: boolean;
   /** Seconds until the sleep timer pauses playback; null when off. */
   sleepRemaining: number | null;
-  play: (episode: Episode) => Promise<void>;
+  play: (episode: Episode, startAt?: number) => Promise<void>;
   toggle: () => void;
   seek: (seconds: number) => void;
   skip: (deltaSeconds: number) => void;
@@ -170,7 +170,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
    * With autoplay=false this only loads (used to restore the last-played
    * episode on app start, so one tap on Play resumes). */
   const loadEpisode = useCallback(
-    async (ep: Episode, account: Account, autoplay: boolean) => {
+    async (ep: Episode, account: Account, autoplay: boolean, startAt?: number) => {
       const audio = audioRef.current;
       if (!audio) return;
 
@@ -202,12 +202,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setOfflineSource(false);
       }
 
-      // Resume point: freshest of local (offline-safe) and server-known position.
-      const local = await getLocalPosition(account.id, ep.episodeid);
-      const serverSeconds = ep.listenduration ?? 0;
-      let resumeAt = Math.max(local?.seconds ?? 0, serverSeconds);
-      const total = ep.episodeduration || 0;
-      if (ep.completed || (total > 0 && resumeAt > total - 15)) resumeAt = 0;
+      // Resume point: an explicit start (e.g. tapped transcript line) wins,
+      // else the freshest of local (offline-safe) and server-known position.
+      let resumeAt: number;
+      if (startAt != null) {
+        resumeAt = startAt;
+      } else {
+        const local = await getLocalPosition(account.id, ep.episodeid);
+        const serverSeconds = ep.listenduration ?? 0;
+        resumeAt = Math.max(local?.seconds ?? 0, serverSeconds);
+        const total = ep.episodeduration || 0;
+        if (ep.completed || (total > 0 && resumeAt > total - 15)) resumeAt = 0;
+      }
       setPosition(resumeAt);
 
       audio.playbackRate = rate;
@@ -233,17 +239,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const play = useCallback(
-    async (ep: Episode) => {
+    async (ep: Episode, startAt?: number) => {
       const audio = audioRef.current;
       if (!audio || !active) return;
 
-      // Same episode already cued and healthy: just resume.
+      // Same episode already cued and healthy: just resume (or jump).
       if (episodeRef.current?.episodeid === ep.episodeid && audio.src && !audio.error) {
+        if (startAt != null) {
+          audio.currentTime = startAt;
+          setPosition(startAt);
+        }
         void audio.play();
         return;
       }
 
-      await loadEpisode(ep, active, true);
+      await loadEpisode(ep, active, true, startAt);
       // Remember for next launch so one tap resumes where you left off.
       void cacheSet(active.id, LAST_PLAYED_KEY, ep);
     },
