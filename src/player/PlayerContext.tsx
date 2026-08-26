@@ -401,11 +401,57 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Media session transport controls (lock screen / hardware keys).
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
-    navigator.mediaSession.setActionHandler('play', () => toggle());
-    navigator.mediaSession.setActionHandler('pause', () => toggle());
+    // Explicit play/pause (not toggle): the notification's idea of the state
+    // can drift from ours after the tab was frozen in the background.
+    navigator.mediaSession.setActionHandler('play', () => void audioRef.current?.play());
+    navigator.mediaSession.setActionHandler('pause', () => audioRef.current?.pause());
     navigator.mediaSession.setActionHandler('seekbackward', () => skip(-15));
     navigator.mediaSession.setActionHandler('seekforward', () => skip(30));
-  }, [toggle, skip]);
+    navigator.mediaSession.setActionHandler('seekto', (details) => {
+      if (details.seekTime != null) seek(details.seekTime);
+    });
+  }, [seek, skip]);
+
+  // Keep the media session's bookkeeping current. Android uses this to decide
+  // how long a paused session's notification survives in the background, and
+  // it powers the notification's progress bar.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = episode ? (playing ? 'playing' : 'paused') : 'none';
+  }, [playing, episode]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) {
+      return;
+    }
+    const update = () => {
+      if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: audio.duration,
+          position: Math.min(audio.currentTime, audio.duration),
+          playbackRate: audio.playbackRate,
+        });
+      } catch {
+        // Invalid transient values (e.g. mid-load) — skip this update.
+      }
+    };
+    audio.addEventListener('durationchange', update);
+    audio.addEventListener('seeked', update);
+    audio.addEventListener('ratechange', update);
+    audio.addEventListener('play', update);
+    audio.addEventListener('pause', update);
+    const interval = window.setInterval(update, 5000);
+    return () => {
+      audio.removeEventListener('durationchange', update);
+      audio.removeEventListener('seeked', update);
+      audio.removeEventListener('ratechange', update);
+      audio.removeEventListener('play', update);
+      audio.removeEventListener('pause', update);
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const value = useMemo(
     () => ({
