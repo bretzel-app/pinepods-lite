@@ -427,6 +427,16 @@ async function main() {
   await page.waitForSelector('.episode-row');
   await page.click('.episode-row button[title="More"]');
   await page.waitForSelector('.action-sheet');
+  // The browser/system back button closes the sheet, not the page.
+  const sheetPath = await page.evaluate(() => location.pathname);
+  await page.goBack();
+  await page.waitForSelector('.action-sheet', { state: 'detached' });
+  if ((await page.evaluate(() => location.pathname)) !== sheetPath)
+    throw new Error('Back navigated away instead of closing the sheet');
+  console.log('PASS back button closes action sheet');
+
+  await page.click('.episode-row button[title="More"]');
+  await page.waitForSelector('.action-sheet');
   await page.click('.action-sheet button:has-text("Save")');
   await page.waitForSelector('.action-sheet', { state: 'detached' });
   console.log('PASS favorite toggle via action sheet');
@@ -498,6 +508,16 @@ async function main() {
   await page.waitForSelector('.full-player');
   const fp = await page.textContent('.full-player');
   if (!fp.includes('Episode One')) throw new Error('Full player missing episode');
+
+  // The browser/system back button closes the player, not the page.
+  const fpPath = await page.evaluate(() => location.pathname);
+  await page.goBack();
+  await page.waitForSelector('.full-player', { state: 'detached' });
+  if ((await page.evaluate(() => location.pathname)) !== fpPath)
+    throw new Error('Back navigated away instead of closing the player');
+  console.log('PASS back button closes full player');
+  await page.click('.player-bar .player-info');
+  await page.waitForSelector('.full-player');
   // Sleep timer: set 30m, button shows countdown, then cancel.
   await page.click('.full-player button[title="Sleep timer"]');
   await page.click('.sleep-options button:has-text("30m")');

@@ -14,6 +14,7 @@ import {
 import { saveEpisode, unsaveEpisode } from '../lib/api';
 import { runOrQueue } from '../lib/sync';
 import { markCompleted, markUncompleted } from '../lib/episodeActions';
+import { useBackDismiss } from '../lib/useBackDismiss';
 import {
   CheckIcon,
   DownloadIcon,
@@ -46,6 +47,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
   const [downloading, setDownloading] = useState(false);
   const [localSeconds, setLocalSeconds] = useState<number | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const { openWithHistory: openSheet, close: closeSheet } = useBackDismiss(sheetOpen, setSheetOpen);
 
   useEffect(() => setSaved(episode.saved), [episode.saved]);
   useEffect(() => setCompleted(episode.completed), [episode.completed]);
@@ -108,7 +110,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
     clearPressTimer();
     pressTimerRef.current = window.setTimeout(() => {
       longPressFiredRef.current = true;
-      setSheetOpen(true);
+      openSheet();
     }, LONG_PRESS_MS);
   };
 
@@ -171,8 +173,8 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
   };
 
   const sheetAction = (fn: () => void) => () => {
-    setSheetOpen(false);
     fn();
+    closeSheet();
   };
 
   return (
@@ -187,7 +189,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
         onContextMenu={(e) => {
           e.preventDefault();
           longPressFiredRef.current = true;
-          setSheetOpen(true);
+          if (!sheetOpen) openSheet();
         }}
       >
         {episode.episodeartwork ? (
@@ -238,7 +240,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
           <button
             className="icon-btn"
             onClick={() => {
-              if (!guardLongPress()) setSheetOpen(true);
+              if (!guardLongPress()) openSheet();
             }}
             title="More"
           >
@@ -250,7 +252,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
               if (guardLongPress()) return;
               // Downloaded: the check is a status; removal lives in the
               // sheet behind an explicit label, never one accidental tap.
-              if (localDownload) setSheetOpen(true);
+              if (localDownload) openSheet();
               else onDownload();
             }}
             disabled={downloading}
@@ -265,7 +267,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
       </div>
 
       {sheetOpen && (
-        <div className="sheet-backdrop" onClick={() => setSheetOpen(false)}>
+        <div className="sheet-backdrop" onClick={() => closeSheet()}>
           <div className="action-sheet" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-title">{episode.episodetitle}</div>
             <button onClick={sheetAction(onPlay)}>
@@ -289,7 +291,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
                   : 'Download for offline'}
             </button>
             {episode.podcastid != null && (
-              <button onClick={sheetAction(() => navigate(`/podcasts/${episode.podcastid}`))}>
+              <button onClick={() => closeSheet(() => navigate(`/podcasts/${episode.podcastid}`))}>
                 <GridIcon />
                 Go to podcast
               </button>

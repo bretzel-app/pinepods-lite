@@ -1,12 +1,16 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePlayer } from './PlayerContext';
 import { formatDuration } from '../lib/format';
+import { useBackDismiss } from '../lib/useBackDismiss';
 import { PauseIcon, PlayIcon, SkipBackIcon, SkipFwdIcon } from '../components/icons';
 import FullPlayer from './FullPlayer';
 
 export default function PlayerBar() {
   const { episode, playing, position, duration, offlineSource, toggle, seek, skip } = usePlayer();
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
+  const { openWithHistory, close } = useBackDismiss(expanded, setExpanded);
 
   if (!episode) return null;
 
@@ -22,18 +26,23 @@ export default function PlayerBar() {
 
   return (
     <>
-      {expanded && <FullPlayer onClose={() => setExpanded(false)} />}
+      {expanded && (
+        <FullPlayer
+          onClose={() => close()}
+          onNavigate={(path, state) => close(() => navigate(path, { state }))}
+        />
+      )}
       <div className="player-bar">
         <div className="player-seek" onClick={onSeekClick}>
           <div className="track" />
           <div className="fill" style={{ width: `${fraction * 100}%` }} />
         </div>
         {episode.episodeartwork ? (
-          <img className="artwork" src={episode.episodeartwork} alt="" onClick={() => setExpanded(true)} />
+          <img className="artwork" src={episode.episodeartwork} alt="" onClick={openWithHistory} />
         ) : (
-          <div className="artwork" onClick={() => setExpanded(true)} />
+          <div className="artwork" onClick={openWithHistory} />
         )}
-        <div className="player-info" onClick={() => setExpanded(true)} title="Open player">
+        <div className="player-info" onClick={openWithHistory} title="Open player">
           <div className="title">{episode.episodetitle}</div>
           <div className="sub">
             {episode.podcastname}

@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { usePlayer } from './PlayerContext';
 import { useAccounts } from '../lib/accounts';
 import { cacheSet } from '../lib/db';
@@ -10,7 +9,13 @@ import TranscriptView from '../components/TranscriptView';
 const RATES = [1, 1.25, 1.5, 1.75, 2, 0.75];
 const SLEEP_MINUTES = [5, 15, 30, 45, 60];
 
-export default function FullPlayer({ onClose }: { onClose: () => void }) {
+interface Props {
+  onClose: () => void;
+  /** Close the overlay (consuming its history entry) and then navigate. */
+  onNavigate: (path: string, state?: unknown) => void;
+}
+
+export default function FullPlayer({ onClose, onNavigate }: Props) {
   const {
     episode,
     playing,
@@ -29,7 +34,6 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
     setSleepRepeat,
   } = usePlayer();
   const { active } = useAccounts();
-  const navigate = useNavigate();
   const [sleepOpen, setSleepOpen] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
 
@@ -45,8 +49,7 @@ export default function FullPlayer({ onClose }: { onClose: () => void }) {
   const openDetail = () => {
     // Prime the cache so the detail page renders offline / on hard refresh.
     if (active) void cacheSet(active.id, `episode:${episode.episodeid}`, episode);
-    onClose();
-    navigate(`/episodes/${episode.episodeid}`, { state: { episode } });
+    onNavigate(`/episodes/${episode.episodeid}`, { episode });
   };
 
   return (
