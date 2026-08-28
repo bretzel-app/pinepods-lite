@@ -3,6 +3,11 @@
 An **offline-first web client** for [PinePods](https://pinepods.online/), built to add the
 things the official apps are missing:
 
+> **Unofficial third-party client.** This project is not affiliated with, endorsed by, or
+> associated with the [PinePods](https://github.com/madeofpendletonwool/PinePods) project.
+> It's an independent client that talks to a PinePods server's HTTP API; it shares no code
+> with the upstream project and follows its own license (MIT).
+
 - **Multiple accounts & instant switching** — connect any number of PinePods servers/users;
   each account keeps its own cache, playback positions and downloads. Switching is instant
   and works offline.
