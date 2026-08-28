@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../lib/accounts';
 import { CheckIcon, PlusIcon, SwapIcon, TrashIcon } from '../components/icons';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 export default function Accounts() {
   const { accounts, active, switchAccount, removeAccount } = useAccounts();
@@ -19,6 +20,10 @@ export default function Accounts() {
   return (
     <div>
       <h1 className="page-title">Accounts</h1>
+      <div className="list-toolbar">
+        <h2>Appearance</h2>
+        <ThemeToggle />
+      </div>
       {accounts.map((a) => {
         const isActive = a.id === active?.id;
         return (

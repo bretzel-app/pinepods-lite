@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
 :root {
   --bg: #12141c;
   --bg-raised: #1a1d28;
@@ -10,6 +12,72 @@
   --danger: #f87171;
   --nav-height: 56px;
   --player-height: 64px;
+}
+
+/* ---- bretzel theme ----
+   Retro-parchment palette + type, matching crumbs (bretzel-app/crumbs).
+   Additive overrides scoped under [data-theme='bretzel'] — the default
+   theme's rules above are untouched. */
+
+[data-theme='bretzel'] {
+  --bg: #f0e6d3;
+  --bg-raised: #faf5eb;
+  --bg-hover: #e8ddc8;
+  --border: #d4cabb;
+  --text: #1a1a2e;
+  --text-dim: #6b6272;
+  --accent: #c8860a;
+  --accent-dim: #a66f0f;
+  --danger: #a63d2f;
+}
+
+[data-theme='bretzel'] body {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+[data-theme='bretzel'] .sidebar .brand {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+/* Sharp corners everywhere, except functional circles (avatar, play buttons). */
+[data-theme='bretzel'] .btn,
+[data-theme='bretzel'] .icon-btn,
+[data-theme='bretzel'] .pill,
+[data-theme='bretzel'] .segmented,
+[data-theme='bretzel'] .segmented button,
+[data-theme='bretzel'] input,
+[data-theme='bretzel'] select,
+[data-theme='bretzel'] .pod-card img,
+[data-theme='bretzel'] .episode-row .artwork,
+[data-theme='bretzel'] .player-bar .artwork,
+[data-theme='bretzel'] .full-player-art img,
+[data-theme='bretzel'] .full-player-art .art-placeholder,
+[data-theme='bretzel'] .account-row,
+[data-theme='bretzel'] .login-card,
+[data-theme='bretzel'] .action-sheet,
+[data-theme='bretzel'] .fp-transcript,
+[data-theme='bretzel'] .transcript-line,
+[data-theme='bretzel'] .offline-banner,
+[data-theme='bretzel'] .error-box,
+[data-theme='bretzel'] .pod-header img {
+  border-radius: 2px;
+}
+
+/* Hard-offset shadows on card-like surfaces (not on small thumbnails, where
+   it would read as noise). */
+[data-theme='bretzel'] .btn,
+[data-theme='bretzel'] .account-row,
+[data-theme='bretzel'] .login-card,
+[data-theme='bretzel'] .action-sheet,
+[data-theme='bretzel'] .fp-transcript {
+  box-shadow: 2px 2px 0 var(--border);
+}
+
+[data-theme='bretzel'] .btn:hover,
+[data-theme='bretzel'] .account-row.active-account {
+  box-shadow: 3px 3px 0 var(--accent);
 }
 
 * {

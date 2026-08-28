@@ -6,6 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1a1d28" />
     <title>PinePods Offline</title>
+    <script>
+      // Applies a stored theme before first paint to avoid a flash of the
+      // wrong theme. Kept in sync with src/lib/theme.ts — update both.
+      try {
+        if (localStorage.getItem('pinepods.theme') === 'bretzel') {
+          document.documentElement.setAttribute('data-theme', 'bretzel');
+          document
+            .querySelector('meta[name="theme-color"]')
+            ?.setAttribute('content', '#f0e6d3');
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
