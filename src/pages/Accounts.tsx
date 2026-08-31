@@ -20,9 +20,11 @@ export default function Accounts() {
   return (
     <div>
       <h1 className="page-title">Accounts</h1>
-      <div className="list-toolbar">
-        <h2>Appearance</h2>
-        <ThemeToggle />
+      <div className="settings-section">
+        <div className="list-toolbar" style={{ margin: 0 }}>
+          <h2>Appearance</h2>
+          <ThemeToggle />
+        </div>
       </div>
       {accounts.map((a) => {
         const isActive = a.id === active?.id;

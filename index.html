@@ -5,17 +5,21 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/icon-maskable.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#1a1d28" />
+    <meta name="theme-color" content="#f0e6d3" />
     <title>PinePods Offline</title>
     <script>
-      // Applies a stored theme before first paint to avoid a flash of the
-      // wrong theme. Kept in sync with src/lib/theme.ts — update both.
+      // Applies the theme before first paint to avoid a flash of the wrong
+      // theme. Bretzel is the default — only an explicit Pinepods choice
+      // ('pinepods', or 'default' from before the rename) opts out. Kept in
+      // sync with src/lib/theme.ts — update both.
       try {
-        if (localStorage.getItem('pinepods.theme') === 'bretzel') {
+        var stored = localStorage.getItem('pinepods.theme');
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (stored !== 'pinepods' && stored !== 'default') {
           document.documentElement.setAttribute('data-theme', 'bretzel');
-          document
-            .querySelector('meta[name="theme-color"]')
-            ?.setAttribute('content', '#f0e6d3');
+          meta?.setAttribute('content', '#f0e6d3');
+        } else {
+          meta?.setAttribute('content', '#1a1d28');
         }
       } catch (e) {}
     </script>

@@ -1093,6 +1093,12 @@ a {
   margin: 0;
 }
 
+.settings-section {
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
 .segmented {
   display: inline-flex;
   background: var(--bg-hover);

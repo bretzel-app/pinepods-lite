@@ -12,8 +12,8 @@ export default defineConfig({
         name: 'PinePods Offline',
         short_name: 'PinePods',
         description: 'Offline-first PinePods podcast client with multi-account support',
-        theme_color: '#1a1d28',
-        background_color: '#1a1d28',
+        theme_color: '#f0e6d3',
+        background_color: '#f0e6d3',
         display: 'standalone',
         start_url: '/',
         icons: [

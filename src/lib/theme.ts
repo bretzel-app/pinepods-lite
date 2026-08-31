@@ -1,16 +1,19 @@
-export type Theme = 'default' | 'bretzel';
+export type Theme = 'pinepods' | 'bretzel';
 
 const THEME_KEY = 'pinepods.theme';
 
 /** Kept in sync with the inline FOUC-avoidance script in index.html and the
  *  `theme-color` meta default there. Update all three together. */
 const THEME_COLOR: Record<Theme, string> = {
-  default: '#1a1d28',
+  pinepods: '#1a1d28',
   bretzel: '#f0e6d3',
 };
 
+/** Bretzel is the default — only an explicit Pinepods choice opts out.
+ *  'default' is accepted too, for anyone who picked it under the old name. */
 export function getTheme(): Theme {
-  return localStorage.getItem(THEME_KEY) === 'bretzel' ? 'bretzel' : 'default';
+  const stored = localStorage.getItem(THEME_KEY);
+  return stored === 'pinepods' || stored === 'default' ? 'pinepods' : 'bretzel';
 }
 
 export function applyTheme(theme: Theme): void {

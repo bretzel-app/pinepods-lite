@@ -11,11 +11,11 @@ export function ThemeToggle() {
 
   return (
     <div className="segmented">
-      <button className={theme === 'default' ? 'on' : ''} onClick={() => choose('default')}>
-        Default
-      </button>
       <button className={theme === 'bretzel' ? 'on' : ''} onClick={() => choose('bretzel')}>
         Bretzel
+      </button>
+      <button className={theme === 'pinepods' ? 'on' : ''} onClick={() => choose('pinepods')}>
+        Pinepods
       </button>
     </div>
   );
