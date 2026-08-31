@@ -20,12 +20,6 @@ export default function Accounts() {
   return (
     <div>
       <h1 className="page-title">Accounts</h1>
-      <div className="settings-section">
-        <div className="list-toolbar" style={{ margin: 0 }}>
-          <h2>Appearance</h2>
-          <ThemeToggle />
-        </div>
-      </div>
       {accounts.map((a) => {
         const isActive = a.id === active?.id;
         return (
@@ -77,6 +71,14 @@ export default function Accounts() {
         Each account keeps its own cache, playback positions and offline downloads. Switching is
         instant and works offline.
       </p>
+
+      <div className="settings-section">
+        <h2 className="settings-heading">Settings</h2>
+        <div className="list-toolbar" style={{ margin: 0 }}>
+          <span>Appearance</span>
+          <ThemeToggle />
+        </div>
+      </div>
     </div>
   );
 }
