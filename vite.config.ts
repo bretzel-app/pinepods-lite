@@ -9,7 +9,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon-192.png', 'icon-512.png', 'icon-maskable.png'],
       manifest: {
-        name: 'PinePods Offline',
+        name: 'PinePods Lite',
         short_name: 'PinePods',
         description: 'Offline-first PinePods podcast client with multi-account support',
         theme_color: '#f0e6d3',

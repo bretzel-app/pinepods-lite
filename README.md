@@ -1,4 +1,4 @@
-# PinePods Offline
+# PinePods Lite
 
 An **offline-first web client** for [PinePods](https://pinepods.online/), built to add the
 things the official apps are missing:
