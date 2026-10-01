@@ -6,6 +6,7 @@ import { useCached } from '../lib/useCached';
 import { cacheSet } from '../lib/db';
 import { stripHtml } from '../lib/format';
 import { isEffectivelyFinished } from '../lib/continueListening';
+import { buildSearchIndex, filterEpisodes } from '../lib/episodeSearch';
 import EpisodeRow from '../components/EpisodeRow';
 import { PlayedFilter, useHidePlayed } from '../components/PlayedFilter';
 
@@ -29,16 +30,24 @@ export default function PodcastDetail() {
   });
 
   const [hidePlayed, setHidePlayed] = useHidePlayed();
+  const [query, setQuery] = useState('');
 
   // Same "effectively finished" rule as Continue listening: completed flag,
   // under a minute remaining, or >= 98% played.
-  const visibleEpisodes = useMemo(() => {
+  const unplayedEpisodes = useMemo(() => {
     const all = eps.data ?? [];
     if (!hidePlayed) return all;
     return all.filter(
       (e) => !isEffectivelyFinished(e, e.listenduration ?? 0, e.episodeduration || 0),
     );
   }, [eps.data, hidePlayed]);
+
+  const searchIndex = useMemo(() => buildSearchIndex(eps.data ?? []), [eps.data]);
+  const visibleEpisodes = useMemo(
+    () => filterEpisodes(unplayedEpisodes, searchIndex, query),
+    [unplayedEpisodes, searchIndex, query],
+  );
+  const searching = query.trim() !== '';
 
   const onUnsubscribe = async () => {
     if (!podcast) return;
@@ -75,6 +84,15 @@ export default function PodcastDetail() {
         <h2>Episodes</h2>
         <PlayedFilter value={hidePlayed} onChange={setHidePlayed} />
       </div>
+      {eps.data && eps.data.length > 0 && (
+        <input
+          className="episode-search"
+          type="search"
+          placeholder="Search episodes…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      )}
 
       {eps.refreshing && <div className="notice">Refreshing episodes…</div>}
       {eps.loading && !eps.data && <div className="notice">Loading episodes…</div>}
@@ -88,7 +106,10 @@ export default function PodcastDetail() {
           hidePodcast
         />
       ))}
-      {hidePlayed && eps.data && visibleEpisodes.length < eps.data.length && (
+      {searching && eps.data && visibleEpisodes.length === 0 && (
+        <div className="notice">No episodes match “{query.trim()}”.</div>
+      )}
+      {!searching && hidePlayed && eps.data && visibleEpisodes.length < eps.data.length && (
         <div className="notice">
           {eps.data.length - visibleEpisodes.length} played episode
           {eps.data.length - visibleEpisodes.length === 1 ? '' : 's'} hidden.
