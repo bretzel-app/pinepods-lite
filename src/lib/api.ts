@@ -228,6 +228,23 @@ export async function removePodcast(account: Account, podcastId: number): Promis
 
 // ---- search ------------------------------------------------------------------
 
+/** Search episodes across the user's own subscriptions (server-side). */
+export async function searchSubscribedEpisodes(
+  account: Account,
+  query: string,
+  limit = 100,
+): Promise<Episode[]> {
+  const body = await request<{ data?: Record<string, unknown>[] }>(
+    account,
+    `/api/data/search_data?limit=${limit}&offset=0`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ search_term: query, user_id: account.userId }),
+    },
+  );
+  return (body.data ?? []).map(normalizeEpisode);
+}
+
 /** Search the Podcast Index through the server-side proxy. */
 export async function searchPodcasts(account: Account, query: string): Promise<SearchResult[]> {
   const body = await request<{

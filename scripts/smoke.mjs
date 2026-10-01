@@ -194,6 +194,13 @@ async function main() {
         total: episodes.length,
       });
     }
+    if (p === '/api/data/search_data') {
+      const body = route.request().postDataJSON();
+      if (body.user_id !== 7) throw new Error(`search_data sent user_id ${body.user_id}`);
+      const term = body.search_term.toLowerCase();
+      const data = episodes.filter((e) => e.episodetitle.toLowerCase().includes(term));
+      return json({ data, total: data.length });
+    }
     if (p === '/api/data/proxy_search')
       return json({
         status: 'true',
@@ -433,6 +440,23 @@ async function main() {
   const btnText = await page.textContent('.searchbar button');
   if (!btnText.includes('Search')) throw new Error('Search button has no label');
   console.log('PASS search state restored after navigation');
+
+  // ---- search episodes across subscriptions (server-side) ----
+  await page.click('.search-scope button:has-text("My podcasts")');
+  await page.fill('input[type=search]', 'two');
+  await page.click('.searchbar button');
+  await page.waitForFunction(() =>
+    document.querySelector('.content')?.textContent.includes('Episode Two'),
+  );
+  const mine = await page.textContent('.content');
+  if (mine.includes('Episode One')) throw new Error('Subscribed search returned a non-match');
+  if (mine.includes("Couldn't reach the server"))
+    throw new Error('Subscribed search fell back to local while online');
+  await page.click('.search-scope button:has-text("Directory")');
+  await page.waitForFunction(
+    () => document.querySelector('input[type=search]')?.value === 'found',
+  );
+  console.log('PASS search episodes in my podcasts');
 
   // ---- saved page ----
   await page.click('nav.sidebar a[href="/saved"]');
@@ -687,6 +711,19 @@ async function main() {
     timeout: 10000,
   });
   console.log('PASS offline reload with cached data');
+
+  // ---- subscribed-episode search falls back to the on-device cache ----
+  await page.click('nav.sidebar a[href="/search"]');
+  await page.click('.search-scope button:has-text("My podcasts")');
+  await page.fill('input[type=search]', 'second test');
+  await page.click('.searchbar button');
+  await page.waitForFunction(() =>
+    document.querySelector('.content')?.textContent.includes("Couldn't reach the server"),
+  );
+  const offlineMine = await page.textContent('.content');
+  if (!offlineMine.includes('Episode Two')) throw new Error('Offline episode search missed a match');
+  if (offlineMine.includes('Episode One')) throw new Error('Offline episode search returned a non-match');
+  console.log('PASS offline search episodes in my podcasts');
 
   await context.setOffline(false);
 
