@@ -70,6 +70,19 @@ export async function cacheSet(accountId: string, key: string, data: unknown): P
   await db.put('cache', { key: `${accountId}:${key}`, accountId, data, updatedAt: Date.now() });
 }
 
+/** Every cached entry for an account whose key starts with `prefix`. */
+export async function cacheListByPrefix<T>(
+  accountId: string,
+  prefix: string,
+): Promise<{ key: string; data: T }[]> {
+  const db = await getDB();
+  const rows = await db.getAllFromIndex('cache', 'byAccount', accountId);
+  const full = `${accountId}:${prefix}`;
+  return rows
+    .filter((r) => r.key.startsWith(full))
+    .map((r) => ({ key: r.key.slice(accountId.length + 1), data: r.data as T }));
+}
+
 // ---- positions -----------------------------------------------------------
 
 export async function getLocalPosition(

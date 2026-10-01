@@ -7,8 +7,38 @@ import { useCached } from '../lib/useCached';
 import { cacheGet, cacheSet } from '../lib/db';
 import { CheckIcon, PlusIcon, SearchIcon } from '../components/icons';
 import { useOnline } from '../components/Layout';
+import SubscribedSearch from '../components/SubscribedSearch';
+
+type Scope = 'directory' | 'mine';
+const SCOPE_KEY = 'pinepods.searchScope';
 
 export default function Search() {
+  const [scope, setScopeState] = useState<Scope>(() =>
+    localStorage.getItem(SCOPE_KEY) === 'mine' ? 'mine' : 'directory',
+  );
+  const setScope = (next: Scope) => {
+    localStorage.setItem(SCOPE_KEY, next);
+    setScopeState(next);
+  };
+
+  return (
+    <div>
+      <h1 className="page-title">Search</h1>
+      <div className="segmented search-scope">
+        <button className={scope === 'directory' ? 'on' : ''} onClick={() => setScope('directory')}>
+          Directory
+        </button>
+        <button className={scope === 'mine' ? 'on' : ''} onClick={() => setScope('mine')}>
+          My podcasts
+        </button>
+      </div>
+      {scope === 'directory' ? <DirectorySearch /> : <SubscribedSearch />}
+    </div>
+  );
+}
+
+/** Find new podcasts in the Podcast Index. */
+function DirectorySearch() {
   const account = useActiveAccount();
   const online = useOnline();
   const navigate = useNavigate();
@@ -88,7 +118,6 @@ export default function Search() {
 
   return (
     <div>
-      <h1 className="page-title">Search</h1>
       <form className="searchbar" onSubmit={onSearch}>
         <input
           type="search"
