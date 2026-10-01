@@ -1144,3 +1144,8 @@ a {
 .search-scope {
   margin-bottom: 12px;
 }
+
+.show-more {
+  display: block;
+  margin: 12px auto;
+}

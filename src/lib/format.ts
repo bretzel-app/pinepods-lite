@@ -20,9 +20,10 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Strip HTML tags from feed descriptions for plain-text previews. */
+/** Strip HTML tags from feed descriptions for plain-text previews. Parsed in
+ * an inert document: an element's innerHTML would fetch images and fire
+ * inline handlers like onerror from untrusted feed markup. */
 export function stripHtml(html: string): string {
-  const el = document.createElement('div');
-  el.innerHTML = html;
-  return el.textContent ?? '';
+  if (!html) return '';
+  return new DOMParser().parseFromString(html, 'text/html').body.textContent ?? '';
 }

@@ -169,6 +169,33 @@ export async function getPodcastEpisodes(
   return { episodes: (body.episodes ?? []).map(normalizeEpisode), total: body.total ?? 0 };
 }
 
+/** Every episode of a podcast. Reads the first page for the total, then
+ * fetches the remaining pages a few at a time. */
+export async function getAllPodcastEpisodes(
+  account: Account,
+  podcastId: number,
+): Promise<Episode[]> {
+  const pageSize = 200;
+  const parallel = 4;
+  const first = await getPodcastEpisodes(account, podcastId, pageSize, 0);
+  const all = [...first.episodes];
+  if (first.episodes.length === 0) return all;
+  for (let offset = all.length; offset < first.total; offset += pageSize * parallel) {
+    const offsets: number[] = [];
+    for (let o = offset; o < Math.min(first.total, offset + pageSize * parallel); o += pageSize)
+      offsets.push(o);
+    const pages = await Promise.all(
+      offsets.map((o) => getPodcastEpisodes(account, podcastId, pageSize, o)),
+    );
+    for (const page of pages) all.push(...page.episodes);
+    // A short page means the server has fewer than it reported; stop there.
+    if (pages.some((page) => page.episodes.length < pageSize)) break;
+  }
+  // Episodes published mid-fetch shift the pages, which can repeat one.
+  const seen = new Set<number>();
+  return all.filter((e) => !seen.has(e.episodeid) && !!seen.add(e.episodeid));
+}
+
 /** Recent episodes across all subscriptions (the home feed). */
 export async function getRecentEpisodes(
   account: Account,
