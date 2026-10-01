@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useActiveAccount } from '../lib/accounts';
-import { getPodcastEpisodes, getSubscribedPodcasts, removePodcast } from '../lib/api';
+import { getAllPodcastEpisodes, getSubscribedPodcasts, removePodcast } from '../lib/api';
 import { useCached } from '../lib/useCached';
 import { cacheSet } from '../lib/db';
 import { stripHtml } from '../lib/format';
@@ -9,6 +9,8 @@ import { isEffectivelyFinished } from '../lib/continueListening';
 import { buildSearchIndex, filterEpisodes } from '../lib/episodeSearch';
 import EpisodeRow from '../components/EpisodeRow';
 import { PlayedFilter, useHidePlayed } from '../components/PlayedFilter';
+
+const PAGE = 200;
 
 export default function PodcastDetail() {
   const account = useActiveAccount();
@@ -24,10 +26,9 @@ export default function PodcastDetail() {
     [pods.data, id],
   );
 
-  const eps = useCached(account.id, `podcast-episodes:${id}`, async () => {
-    const { episodes } = await getPodcastEpisodes(account, id, 200);
-    return episodes;
-  });
+  const eps = useCached(account.id, `podcast-episodes:${id}`, () =>
+    getAllPodcastEpisodes(account, id),
+  );
 
   const [hidePlayed, setHidePlayed] = useHidePlayed();
   const [query, setQuery] = useState('');
@@ -48,6 +49,10 @@ export default function PodcastDetail() {
     [unplayedEpisodes, searchIndex, query],
   );
   const searching = query.trim() !== '';
+
+  // Long-running shows can have thousands of episodes; render them in chunks.
+  const [shown, setShown] = useState(PAGE);
+  useEffect(() => setShown(PAGE), [query, hidePlayed, id]);
 
   const onUnsubscribe = async () => {
     if (!podcast) return;
@@ -99,13 +104,18 @@ export default function PodcastDetail() {
       {eps.error && !eps.data && (
         <div className="error-box">Couldn't load episodes: {eps.error.message}</div>
       )}
-      {visibleEpisodes.map((e) => (
+      {visibleEpisodes.slice(0, shown).map((e) => (
         <EpisodeRow
           key={e.episodeid}
           episode={{ ...e, podcastid: id, podcastname: e.podcastname || podcast?.podcastname || '' }}
           hidePodcast
         />
       ))}
+      {visibleEpisodes.length > shown && (
+        <button className="btn show-more" onClick={() => setShown((n) => n + PAGE)}>
+          Show more ({visibleEpisodes.length - shown} left)
+        </button>
+      )}
       {searching && eps.data && visibleEpisodes.length === 0 && (
         <div className="notice">No episodes match “{query.trim()}”.</div>
       )}

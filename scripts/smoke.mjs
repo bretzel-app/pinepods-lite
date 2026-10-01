@@ -3,6 +3,26 @@ import { chromium } from 'playwright';
 const APP = 'http://localhost:4173';
 const SERVER = 'https://pods.example.com';
 
+const bigPodcast = Array.from({ length: 450 }, (_, i) => ({
+  podcastid: 99,
+  podcastname: 'Long Cast',
+  episodetitle: `Long Ep ${String(450 - i).padStart(3, '0')}`,
+  episodepubdate: new Date(Date.UTC(2026, 0, 1) - i * 86400000).toISOString(),
+  episodedescription: i === 440 ? 'An old one about narwhals' : 'Filler',
+  episodeartwork: '',
+  episodeurl: `${SERVER}/audio/long-${i}.mp3`,
+  episodeduration: 600,
+  listenduration: null,
+  episodeid: 5000 + i,
+  completed: false,
+  saved: false,
+  queued: false,
+  downloaded: false,
+  is_youtube: false,
+  is_video: false,
+}));
+const bigPodcastOffsets = [];
+
 const episodes = [
   {
     podcastid: 1,
@@ -173,6 +193,13 @@ async function main() {
     if (p.startsWith('/api/data/saved_episode_list/'))
       return json({ saved_episodes: [episodes[1]], total: 1 });
     if (p === '/api/data/podcast_episodes') {
+      // A long-running show, paged by the server.
+      if (url.searchParams.get('podcast_id') === '99') {
+        const offset = Number(url.searchParams.get('offset'));
+        const limit = Number(url.searchParams.get('limit'));
+        bigPodcastOffsets.push(offset);
+        return json({ episodes: bigPodcast.slice(offset, offset + limit), total: bigPodcast.length });
+      }
       // The kid's copy of the feed: same episodes, different ids, no history.
       if (url.searchParams.get('user_id') === '8')
         return json({
@@ -391,6 +418,31 @@ async function main() {
     () => document.querySelector('.content').textContent.includes('Episode Three'),
   );
   console.log('PASS episode search on podcast page');
+
+  // ---- long podcast: every page is fetched, rendered in chunks, all searchable ----
+  await page.evaluate(() => {
+    history.pushState({}, '', '/podcasts/99');
+    dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await page.waitForSelector('.show-more', { timeout: 10000 });
+  if ((await page.locator('.content .episode-row').count()) !== 200)
+    throw new Error('Long podcast should render the first 200 episodes');
+  if (!(await page.textContent('.show-more')).includes('250 left'))
+    throw new Error('Show more count wrong');
+  if ([...bigPodcastOffsets].sort((a, b) => a - b).join() !== '0,200,400')
+    throw new Error(`Unexpected page offsets: ${bigPodcastOffsets}`);
+  await page.fill('.episode-search', 'narwhals');
+  await page.waitForFunction(
+    () => document.querySelectorAll('.content .episode-row').length === 1,
+  );
+  if (!(await page.textContent('.content')).includes('Long Ep 010'))
+    throw new Error('Search missed an episode from the last page');
+  await page.fill('.episode-search', '');
+  await page.click('.show-more');
+  await page.waitForFunction(
+    () => document.querySelectorAll('.content .episode-row').length === 400,
+  );
+  console.log('PASS long podcast paging, chunked list, full search');
 
   // ---- search + subscribe ----
   await page.click('nav.sidebar a[href="/search"]');
