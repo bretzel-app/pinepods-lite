@@ -368,6 +368,23 @@ async function main() {
   );
   console.log('PASS unplayed filter on podcast page');
 
+  // ---- in-podcast episode search (title + description, accent-insensitive) ----
+  await page.fill('.episode-search', 'SECOND tést');
+  await page.waitForFunction(
+    () => !document.querySelector('.content').textContent.includes('Episode One'),
+  );
+  if (!(await page.textContent('.content')).includes('Episode Two'))
+    throw new Error('Episode search missed a description match');
+  await page.fill('.episode-search', 'nothing like this');
+  await page.waitForFunction(() =>
+    document.querySelector('.content').textContent.includes('No episodes match'),
+  );
+  await page.fill('.episode-search', '');
+  await page.waitForFunction(
+    () => document.querySelector('.content').textContent.includes('Episode Three'),
+  );
+  console.log('PASS episode search on podcast page');
+
   // ---- search + subscribe ----
   await page.click('nav.sidebar a[href="/search"]');
   await page.fill('input[type=search]', 'found');

@@ -8,6 +8,7 @@ import { cacheGet, cacheSet } from '../lib/db';
 import { usePlayer } from '../player/PlayerContext';
 import { formatDate, formatDuration, stripHtml } from '../lib/format';
 import { PauseIcon, PlayIcon, PlusIcon } from '../components/icons';
+import { buildSearchIndex, filterEpisodes } from '../lib/episodeSearch';
 
 /**
  * Episodes of a podcast the user hasn't subscribed to, straight from its RSS
@@ -56,6 +57,13 @@ export default function PodcastPreview() {
           is_youtube: false,
         })),
     [feed.data, meta],
+  );
+
+  const [query, setQuery] = useState('');
+  const searchIndex = useMemo(() => buildSearchIndex(episodes), [episodes]);
+  const visibleEpisodes = useMemo(
+    () => filterEpisodes(episodes, searchIndex, query),
+    [episodes, searchIndex, query],
   );
 
   const onSubscribe = async () => {
@@ -109,7 +117,20 @@ export default function PodcastPreview() {
         <div className="error-box">Couldn't load this feed: {feed.error.message}</div>
       )}
 
-      {episodes.map((e) => {
+      {episodes.length > 0 && (
+        <input
+          className="episode-search"
+          type="search"
+          placeholder="Search episodes…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      )}
+      {query.trim() !== '' && episodes.length > 0 && visibleEpisodes.length === 0 && (
+        <div className="notice">No episodes match “{query.trim()}”.</div>
+      )}
+
+      {visibleEpisodes.map((e) => {
         const isCurrent = player.episode?.episodeid === e.episodeid;
         const isPlaying = isCurrent && player.playing;
         const onPlay = () => {
