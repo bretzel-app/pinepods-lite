@@ -640,6 +640,22 @@ async function main() {
   await page.waitForSelector('.full-player-art');
   console.log('PASS transcript in full player');
 
+  // Previous/next walk the podcast's episode list (One, Two, Three, Four).
+  const prevBtn = '.full-player button[aria-label="Previous episode"]';
+  const nextBtn = '.full-player button[aria-label="Next episode"]';
+  await page.waitForSelector(`${nextBtn}:not([disabled])`);
+  if (!(await page.isDisabled(prevBtn))) throw new Error('First episode should have no previous');
+  await page.click(nextBtn);
+  await page.waitForFunction(() =>
+    document.querySelector('.fp-title')?.textContent.includes('Episode Two'),
+  );
+  await page.waitForSelector(`${prevBtn}:not([disabled])`);
+  await page.click(prevBtn);
+  await page.waitForFunction(() =>
+    document.querySelector('.fp-title')?.textContent.includes('Episode One'),
+  );
+  console.log('PASS previous/next episode in full player');
+
   await page.click('.full-player-top .icon-btn');
   await page.waitForSelector('.full-player', { state: 'detached' });
   console.log('PASS full-screen player');

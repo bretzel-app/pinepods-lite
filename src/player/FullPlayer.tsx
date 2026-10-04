@@ -3,7 +3,15 @@ import { usePlayer } from './PlayerContext';
 import { useAccounts } from '../lib/accounts';
 import { cacheSet } from '../lib/db';
 import { formatDuration } from '../lib/format';
-import { MoonIcon, PauseIcon, PlayIcon, SkipBackIcon, SkipFwdIcon } from '../components/icons';
+import {
+  MoonIcon,
+  NextEpisodeIcon,
+  PauseIcon,
+  PlayIcon,
+  PrevEpisodeIcon,
+  SkipBackIcon,
+  SkipFwdIcon,
+} from '../components/icons';
 import TranscriptView from '../components/TranscriptView';
 
 const RATES = [1, 1.25, 1.5, 1.75, 2, 0.75];
@@ -32,6 +40,10 @@ export default function FullPlayer({ onClose, onNavigate }: Props) {
     setRate,
     setSleepTimer,
     setSleepRepeat,
+    previousEpisode,
+    nextEpisode,
+    playPrevious,
+    playNext,
   } = usePlayer();
   const { active } = useAccounts();
   const [sleepOpen, setSleepOpen] = useState(false);
@@ -109,6 +121,15 @@ export default function FullPlayer({ onClose, onNavigate }: Props) {
         <button className="icon-btn" onClick={cycleRate} title="Playback speed">
           <span style={{ fontSize: 13, fontWeight: 700 }}>{rate}x</span>
         </button>
+        <button
+          className="icon-btn"
+          onClick={playPrevious}
+          disabled={!previousEpisode}
+          title={previousEpisode ? `Previous: ${previousEpisode.episodetitle}` : 'Previous episode'}
+          aria-label="Previous episode"
+        >
+          <PrevEpisodeIcon />
+        </button>
         <button className="icon-btn big" onClick={() => skip(-15)} title="Back 15s">
           <SkipBackIcon />
         </button>
@@ -117,6 +138,15 @@ export default function FullPlayer({ onClose, onNavigate }: Props) {
         </button>
         <button className="icon-btn big" onClick={() => skip(30)} title="Forward 30s">
           <SkipFwdIcon />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={playNext}
+          disabled={!nextEpisode}
+          title={nextEpisode ? `Next: ${nextEpisode.episodetitle}` : 'Next episode'}
+          aria-label="Next episode"
+        >
+          <NextEpisodeIcon />
         </button>
         <button
           className={`icon-btn${sleepMinutes != null ? ' active' : ''}`}

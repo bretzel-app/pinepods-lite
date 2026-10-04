@@ -91,6 +91,20 @@ export const SkipFwdIcon = ({ className }: IconProps) => (
   </svg>
 );
 
+export const PrevEpisodeIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M6 5v14" />
+    <path d="M18 5.5v13L9 12z" fill="currentColor" />
+  </svg>
+);
+
+export const NextEpisodeIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M18 5v14" />
+    <path d="M6 5.5v13l9-6.5z" fill="currentColor" />
+  </svg>
+);
+
 export const UserIcon = ({ className }: IconProps) => (
   <svg {...base} className={className}>
     <circle cx="12" cy="8" r="4" />
