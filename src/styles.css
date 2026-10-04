@@ -795,6 +795,18 @@ a {
   max-width: 480px;
 }
 
+.full-player-controls .icon-btn:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* Seven controls share the row; tighten it on narrow phones. */
+@media (max-width: 400px) {
+  .full-player-controls {
+    gap: 4px;
+  }
+}
+
 .full-player-controls .icon-btn.big svg {
   width: 26px;
   height: 26px;

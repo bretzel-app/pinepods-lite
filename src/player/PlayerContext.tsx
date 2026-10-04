@@ -10,7 +10,7 @@ import {
 } from 'react';
 import type { Account, Episode } from '../lib/types';
 import { cacheGet, cacheSet, getDownloadBlob, getLocalPosition, putLocalPosition } from '../lib/db';
-import { recordListenDuration, serverStreamUrl } from '../lib/api';
+import { getAllPodcastEpisodes, recordListenDuration, serverStreamUrl } from '../lib/api';
 import { runOrQueue } from '../lib/sync';
 import { markCompleted } from '../lib/episodeActions';
 import { useAccounts } from '../lib/accounts';
@@ -40,6 +40,12 @@ interface PlayerState {
   /** Start a sleep timer for the given minutes, or null to cancel. */
   setSleepTimer: (minutes: number | null) => void;
   setSleepRepeat: (repeat: boolean) => void;
+  /** Neighbours of the current episode in its podcast's episode list (the
+   * order shown on the podcast page); null at either end or when unknown. */
+  previousEpisode: Episode | null;
+  nextEpisode: Episode | null;
+  playPrevious: () => void;
+  playNext: () => void;
 }
 
 const SLEEP_REPEAT_KEY = 'pinepods.sleepRepeat';
@@ -65,6 +71,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [sleepRepeat, setSleepRepeatState] = useState<boolean>(
     () => localStorage.getItem(SLEEP_REPEAT_KEY) === '1',
   );
+  const [previousEpisode, setPreviousEpisode] = useState<Episode | null>(null);
+  const [nextEpisode, setNextEpisode] = useState<Episode | null>(null);
   const sleepMinutesRef = useRef<number | null>(null);
   const sleepRepeatRef = useRef(sleepRepeat);
   sleepRepeatRef.current = sleepRepeat;
@@ -291,6 +299,56 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [active, loadEpisode]);
 
+  // Find the current episode's neighbours in its podcast's episode list.
+  // Prefer the list cached by the podcast page (works offline); fetch it once
+  // when the page was never opened.
+  const currentId = episode?.episodeid;
+  const currentPodcastId = episode?.podcastid;
+  useEffect(() => {
+    setPreviousEpisode(null);
+    setNextEpisode(null);
+    const account = playbackAccountRef.current;
+    if (!account || currentId == null || currentId < 0 || currentPodcastId == null) return;
+    let cancelled = false;
+    const key = `podcast-episodes:${currentPodcastId}`;
+    const pick = (list: Episode[] | undefined): boolean => {
+      const idx = list ? list.findIndex((e) => e.episodeid === currentId) : -1;
+      if (!list || idx < 0) return false;
+      const ep = episodeRef.current;
+      // Rows from the podcast endpoint can omit the podcast fields.
+      const fill = (e: Episode | undefined) =>
+        e
+          ? { ...e, podcastid: currentPodcastId, podcastname: e.podcastname || ep?.podcastname || '' }
+          : null;
+      if (!cancelled) {
+        setPreviousEpisode(fill(list[idx - 1]));
+        setNextEpisode(fill(list[idx + 1]));
+      }
+      return true;
+    };
+    void (async () => {
+      if (pick(await cacheGet<Episode[]>(account.id, key))) return;
+      try {
+        const list = await getAllPodcastEpisodes(account, currentPodcastId);
+        void cacheSet(account.id, key, list);
+        pick(list);
+      } catch {
+        // Offline with no cached list: no previous/next for this episode.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentId, currentPodcastId]);
+
+  const playPrevious = useCallback(() => {
+    if (previousEpisode) void play(previousEpisode);
+  }, [previousEpisode, play]);
+
+  const playNext = useCallback(() => {
+    if (nextEpisode) void play(nextEpisode);
+  }, [nextEpisode, play]);
+
   const setSleepTimer = useCallback((minutes: number | null) => {
     sleepMinutesRef.current = minutes;
     setSleepMinutes(minutes);
@@ -412,6 +470,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     });
   }, [seek, skip]);
 
+  // Lock-screen previous/next; a null handler hides the button at list ends.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.setActionHandler('previoustrack', previousEpisode ? playPrevious : null);
+      navigator.mediaSession.setActionHandler('nexttrack', nextEpisode ? playNext : null);
+    } catch {
+      // Older browsers reject unknown actions.
+    }
+  }, [previousEpisode, nextEpisode, playPrevious, playNext]);
+
   // Keep the media session's bookkeeping current. Android uses this to decide
   // how long a paused session's notification survives in the background, and
   // it powers the notification's progress bar.
@@ -471,6 +540,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setRate,
       setSleepTimer,
       setSleepRepeat,
+      previousEpisode,
+      nextEpisode,
+      playPrevious,
+      playNext,
     }),
     [
       episode,
@@ -489,6 +562,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setRate,
       setSleepTimer,
       setSleepRepeat,
+      previousEpisode,
+      nextEpisode,
+      playPrevious,
+      playNext,
     ],
   );
 
