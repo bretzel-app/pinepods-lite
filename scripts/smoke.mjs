@@ -640,14 +640,15 @@ async function main() {
   await page.waitForSelector('.full-player-art');
   console.log('PASS transcript in full player');
 
-  // Previous/next walk the podcast's episode list (One, Two, Three, Four).
+  // Previous/next go by publication date: One (8/20), Four (8/21),
+  // Two (8/22), Three (8/23) — not the list order One, Two, Three, Four.
   const prevBtn = '.full-player button[aria-label="Previous episode"]';
   const nextBtn = '.full-player button[aria-label="Next episode"]';
   await page.waitForSelector(`${nextBtn}:not([disabled])`);
   if (!(await page.isDisabled(prevBtn))) throw new Error('First episode should have no previous');
   await page.click(nextBtn);
   await page.waitForFunction(() =>
-    document.querySelector('.fp-title')?.textContent.includes('Episode Two'),
+    document.querySelector('.fp-title')?.textContent.includes('Episode Four'),
   );
   await page.waitForSelector(`${prevBtn}:not([disabled])`);
   await page.click(prevBtn);
@@ -730,9 +731,9 @@ async function main() {
     history.pushState({}, '', '/podcasts/1');
     dispatchEvent(new PopStateEvent('popstate'));
   });
-  await page.click('.episode-row:has-text("Episode Three") button[title="Play"]');
+  await page.click('.episode-row:has-text("Episode Four") button[title="Play"]');
   await page.waitForFunction(
-    () => document.querySelector('.player-bar .title')?.textContent === 'Episode Four',
+    () => document.querySelector('.player-bar .title')?.textContent === 'Episode Two',
     null,
     { timeout: 15000 },
   );

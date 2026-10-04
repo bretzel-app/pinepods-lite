@@ -40,8 +40,8 @@ interface PlayerState {
   /** Start a sleep timer for the given minutes, or null to cancel. */
   setSleepTimer: (minutes: number | null) => void;
   setSleepRepeat: (repeat: boolean) => void;
-  /** Neighbours of the current episode in its podcast's episode list (the
-   * order shown on the podcast page); null at either end or when unknown. */
+  /** The episodes of the same podcast published just before and just after
+   * the current one; null at either end or when unknown. */
   previousEpisode: Episode | null;
   nextEpisode: Episode | null;
   playPrevious: () => void;
@@ -322,9 +322,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [active, loadEpisode]);
 
-  // Find the current episode's neighbours in its podcast's episode list.
-  // Prefer the list cached by the podcast page (works offline); fetch it once
-  // when the page was never opened.
+  // Find the current episode's neighbours by publication date, so "next"
+  // continues a serialized story whatever order the list is shown in. Prefer
+  // the list cached by the podcast page (works offline); fetch it once when
+  // the page was never opened.
   const currentId = episode?.episodeid;
   const currentPodcastId = episode?.podcastid;
   useEffect(() => {
@@ -334,9 +335,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (!account || currentId == null || currentId < 0 || currentPodcastId == null) return;
     let cancelled = false;
     const key = `podcast-episodes:${currentPodcastId}`;
-    const pick = (list: Episode[] | undefined): boolean => {
-      const idx = list ? list.findIndex((e) => e.episodeid === currentId) : -1;
-      if (!list || idx < 0) return false;
+    const pick = (fetched: Episode[] | undefined): boolean => {
+      if (!fetched?.some((e) => e.episodeid === currentId)) return false;
+      const list = chronological(fetched);
+      const idx = list.findIndex((e) => e.episodeid === currentId);
       const ep = episodeRef.current;
       // Rows from the podcast endpoint can omit the podcast fields.
       const fill = (e: Episode | undefined) =>
@@ -604,6 +606,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;
+}
+
+/** Oldest first. The server lists newest first, so reversing before the
+ * (stable) sort keeps same-date episodes in a sensible order; undated
+ * episodes sort first. */
+function chronological(list: Episode[]): Episode[] {
+  const time = (e: Episode) => Date.parse(e.episodepubdate) || 0;
+  return [...list].reverse().sort((a, b) => time(a) - time(b));
 }
 
 export function usePlayer(): PlayerState {

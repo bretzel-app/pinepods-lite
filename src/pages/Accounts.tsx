@@ -92,7 +92,7 @@ export default function Accounts() {
           </div>
         </div>
         <p className="notice" style={{ marginTop: 6 }}>
-          When an episode ends, the next one in the podcast's list starts. A sleep timer still
+          When an episode ends, the podcast's next episode by publication date starts. A sleep timer still
           stops playback.
         </p>
       </div>
