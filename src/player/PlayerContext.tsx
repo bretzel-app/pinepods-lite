@@ -46,9 +46,13 @@ interface PlayerState {
   nextEpisode: Episode | null;
   playPrevious: () => void;
   playNext: () => void;
+  /** Start the next episode in the list when the current one ends. */
+  autoplayNext: boolean;
+  setAutoplayNext: (on: boolean) => void;
 }
 
 const SLEEP_REPEAT_KEY = 'pinepods.sleepRepeat';
+const AUTOPLAY_NEXT_KEY = 'pinepods.autoplayNext';
 
 const PlayerContext = createContext<PlayerState | null>(null);
 
@@ -73,6 +77,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
   const [previousEpisode, setPreviousEpisode] = useState<Episode | null>(null);
   const [nextEpisode, setNextEpisode] = useState<Episode | null>(null);
+  const [autoplayNext, setAutoplayNextState] = useState<boolean>(
+    () => localStorage.getItem(AUTOPLAY_NEXT_KEY) === '1',
+  );
+  const autoplayNextRef = useRef(autoplayNext);
+  autoplayNextRef.current = autoplayNext;
+  const nextEpisodeRef = useRef<Episode | null>(null);
+  nextEpisodeRef.current = nextEpisode;
+  // Set while auto-advancing so the play it causes isn't taken for a press.
+  const autoAdvancingRef = useRef(false);
+  const playRef = useRef<(ep: Episode) => Promise<void>>();
   const sleepMinutesRef = useRef<number | null>(null);
   const sleepRepeatRef = useRef(sleepRepeat);
   sleepRepeatRef.current = sleepRepeat;
@@ -140,6 +154,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (account && ep && !ep.completed && ep.episodeid > 0) {
         setEpisode({ ...ep, completed: true });
         void markCompleted(account, ep);
+      }
+      const next = nextEpisodeRef.current;
+      if (autoplayNextRef.current && next && playRef.current) {
+        autoAdvancingRef.current = true;
+        void playRef.current(next).finally(() => {
+          autoAdvancingRef.current = false;
+        });
       }
     };
     audio.addEventListener('timeupdate', onTime);
@@ -247,8 +268,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         };
         audio.addEventListener('loadedmetadata', apply);
       }
-      if (autoplay) void audio.play();
-
       if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
           title: ep.episodetitle,
@@ -256,6 +275,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           artwork: ep.episodeartwork ? [{ src: ep.episodeartwork }] : [],
         });
       }
+
+      // Resolves once playback starts (after the 'play' event), or on failure.
+      if (autoplay) await audio.play().catch(() => {});
     },
     [rate, syncToServer],
   );
@@ -281,6 +303,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     },
     [active, loadEpisode],
   );
+  playRef.current = play;
 
   // On app start (or when switching to an account while idle), cue up that
   // account's last-played episode, paused at its resume point.
@@ -349,6 +372,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (nextEpisode) void play(nextEpisode);
   }, [nextEpisode, play]);
 
+  const setAutoplayNext = useCallback((on: boolean) => {
+    setAutoplayNextState(on);
+    localStorage.setItem(AUTOPLAY_NEXT_KEY, on ? '1' : '0');
+  }, []);
+
   const setSleepTimer = useCallback((minutes: number | null) => {
     sleepMinutesRef.current = minutes;
     setSleepMinutes(minutes);
@@ -372,6 +400,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const audio = audioRef.current;
     if (!audio) return;
     const onPlay = () => {
+      // Auto-advance isn't a check-in: the timer keeps counting down.
+      if (autoAdvancingRef.current) return;
       const minutes = sleepMinutesRef.current;
       if (sleepRepeatRef.current && minutes != null) {
         setSleepUntil(Date.now() + minutes * 60_000);
@@ -544,6 +574,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       nextEpisode,
       playPrevious,
       playNext,
+      autoplayNext,
+      setAutoplayNext,
     }),
     [
       episode,
@@ -566,6 +598,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       nextEpisode,
       playPrevious,
       playNext,
+      autoplayNext,
+      setAutoplayNext,
     ],
   );
 

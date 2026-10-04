@@ -722,6 +722,24 @@ async function main() {
   if (!acct.includes('Fred Tester')) throw new Error('Account name missing');
   console.log('PASS accounts page');
 
+  // ---- opt-in autoplay: an ending episode rolls into the next in the list ----
+  await page.click('.autoplay-toggle button:has-text("On")');
+  if ((await page.evaluate(() => localStorage.getItem('pinepods.autoplayNext'))) !== '1')
+    throw new Error('Autoplay setting not persisted');
+  await page.evaluate(() => {
+    history.pushState({}, '', '/podcasts/1');
+    dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await page.click('.episode-row:has-text("Episode Three") button[title="Play"]');
+  await page.waitForFunction(
+    () => document.querySelector('.player-bar .title')?.textContent === 'Episode Four',
+    null,
+    { timeout: 15000 },
+  );
+  await page.click('nav.sidebar a[href="/accounts"]');
+  await page.click('.autoplay-toggle button:has-text("Off")');
+  console.log('PASS autoplay next episode when enabled');
+
   // ---- transfer podcasts to a second account ----
   await page.click('.btn:has-text("Add account")');
   await page.waitForSelector('.login-card');

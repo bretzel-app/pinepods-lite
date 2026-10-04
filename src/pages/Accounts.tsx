@@ -2,10 +2,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../lib/accounts';
 import { CheckIcon, PlusIcon, SwapIcon, TrashIcon } from '../components/icons';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { usePlayer } from '../player/PlayerContext';
 
 export default function Accounts() {
   const { accounts, active, switchAccount, removeAccount } = useAccounts();
   const navigate = useNavigate();
+  const { autoplayNext, setAutoplayNext } = usePlayer();
 
   const onRemove = async (id: string, label: string) => {
     if (
@@ -78,6 +80,21 @@ export default function Accounts() {
           <span>Appearance</span>
           <ThemeToggle />
         </div>
+        <div className="list-toolbar" style={{ margin: '12px 0 0' }}>
+          <span>Play next episode automatically</span>
+          <div className="segmented autoplay-toggle">
+            <button className={autoplayNext ? '' : 'on'} onClick={() => setAutoplayNext(false)}>
+              Off
+            </button>
+            <button className={autoplayNext ? 'on' : ''} onClick={() => setAutoplayNext(true)}>
+              On
+            </button>
+          </div>
+        </div>
+        <p className="notice" style={{ marginTop: 6 }}>
+          When an episode ends, the next one in the podcast's list starts. A sleep timer still
+          stops playback.
+        </p>
       </div>
     </div>
   );
