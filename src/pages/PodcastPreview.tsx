@@ -140,7 +140,8 @@ export default function PodcastPreview() {
         const isCurrent = player.episode?.episodeid === e.episodeid;
         const isPlaying = isCurrent && player.playing;
         const onPlay = () => {
-          if (isCurrent) player.toggle();
+          // Resuming from a list adopts it, so next/previous follow this list.
+          if (isPlaying) player.toggle();
           else void player.play(e, undefined, queue);
         };
         return (
