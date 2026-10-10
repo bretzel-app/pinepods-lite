@@ -741,6 +741,26 @@ async function main() {
   await page.click('.autoplay-toggle button:has-text("Off")');
   console.log('PASS autoplay next episode when enabled');
 
+  // ---- previous/next follow the list an episode was played from ----
+  // Latest episodes shows One, Two, Four (Three is finished): next after One
+  // is the row below, Two — by publication date it would be Four.
+  await page.click('nav.sidebar a[href="/"]');
+  await page.click('.content > div > .episode-row:has-text("Episode One") button[title="Play"]');
+  await page.click('.player-bar .player-info');
+  await page.waitForSelector('.full-player button[title="Next: Episode Two"]');
+  if (!(await page.textContent('.fp-up-next')).includes('from Latest episodes'))
+    throw new Error('Up next should name the list it comes from');
+  // The queue survives a reload along with the last-played episode.
+  await new Promise((r) => setTimeout(r, 500));
+  await page.reload();
+  await page.click('.player-bar .player-info');
+  await page.waitForSelector('.full-player button[title="Next: Episode Two"]', { timeout: 10000 });
+  await page.click('.full-player-top .icon-btn');
+  await page.waitForSelector('.full-player', { state: 'detached' });
+  console.log('PASS previous/next follow the list played from, restored on reload');
+  await page.click('nav.sidebar a[href="/accounts"]');
+  await page.waitForSelector('.account-row');
+
   // ---- transfer podcasts to a second account ----
   await page.click('.btn:has-text("Add account")');
   await page.waitForSelector('.login-card');

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useActiveAccount } from '../lib/accounts';
 import { searchSubscribedEpisodes } from '../lib/api';
 import type { Episode } from '../lib/types';
@@ -26,6 +26,10 @@ export default function SubscribedSearch() {
   const [query, setQuery] = useState('');
   const [last, setLast] = useState<LastSearch | null>(null);
   const [busy, setBusy] = useState(false);
+  const queue = useMemo(
+    () => ({ source: 'Search results', episodes: last?.episodes ?? [] }),
+    [last],
+  );
 
   useEffect(() => {
     cacheGet<LastSearch>(account.id, 'last-episode-search').then((s) => {
@@ -89,7 +93,7 @@ export default function SubscribedSearch() {
         <div className="notice">No episodes match “{last.query}”.</div>
       )}
       {(last?.episodes ?? []).map((e) => (
-        <EpisodeRow key={e.episodeid} episode={e} />
+        <EpisodeRow key={e.episodeid} episode={e} queue={queue} />
       ))}
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useActiveAccount } from '../lib/accounts';
 import { listDownloads } from '../lib/db';
 import { subscribeDownloads } from '../lib/downloads';
@@ -24,6 +24,10 @@ export default function Downloads() {
     };
   }, [account.id]);
 
+  const queue = useMemo(
+    () => ({ source: 'Downloads', episodes: (entries ?? []).map((d) => d.episode) }),
+    [entries],
+  );
   const totalSize = (entries ?? []).reduce((sum, e) => sum + e.size, 0);
 
   return (
@@ -42,7 +46,7 @@ export default function Downloads() {
         </div>
       )}
       {(entries ?? []).map((d) => (
-        <EpisodeRow key={d.key} episode={d.episode} />
+        <EpisodeRow key={d.key} episode={d.episode} queue={queue} />
       ))}
     </div>
   );
