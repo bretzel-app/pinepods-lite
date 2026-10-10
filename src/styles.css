@@ -795,6 +795,18 @@ a {
   max-width: 480px;
 }
 
+.fp-up-next {
+  width: 100%;
+  max-width: 480px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .full-player-controls .icon-btn:disabled {
   opacity: 0.3;
   pointer-events: none;

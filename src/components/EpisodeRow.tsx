@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Episode } from '../lib/types';
+import type { PlayQueue } from '../lib/playQueue';
 import { useActiveAccount } from '../lib/accounts';
 import { usePlayer } from '../player/PlayerContext';
 import { formatDate, formatDuration, stripHtml } from '../lib/format';
@@ -32,11 +33,13 @@ interface Props {
   hidePodcast?: boolean;
   /** Called after a save/unsave so list pages can refresh their cache. */
   onChanged?: () => void;
+  /** The list this row belongs to; previous/next in the player walk it. */
+  queue?: PlayQueue;
 }
 
 const LONG_PRESS_MS = 500;
 
-export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
+export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: Props) {
   const account = useActiveAccount();
   const player = usePlayer();
   const navigate = useNavigate();
@@ -130,7 +133,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged }: Props) {
   const onPlay = () => {
     if (guardLongPress()) return;
     if (isCurrent) player.toggle();
-    else void player.play(episode);
+    else void player.play(episode, undefined, queue);
   };
 
   const openDetail = () => {

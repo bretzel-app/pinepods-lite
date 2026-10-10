@@ -9,6 +9,7 @@ import { usePlayer } from '../player/PlayerContext';
 import { formatDate, formatDuration, stripHtml } from '../lib/format';
 import { PauseIcon, PlayIcon, PlusIcon } from '../components/icons';
 import { buildSearchIndex, filterEpisodes } from '../lib/episodeSearch';
+import { chronological } from '../lib/playQueue';
 
 /**
  * Episodes of a podcast the user hasn't subscribed to, straight from its RSS
@@ -64,6 +65,11 @@ export default function PodcastPreview() {
   const visibleEpisodes = useMemo(
     () => filterEpisodes(episodes, searchIndex, query),
     [episodes, searchIndex, query],
+  );
+  // Same as a subscribed podcast's page: previous/next by publication date.
+  const queue = useMemo(
+    () => ({ source: meta?.title || 'Podcast', episodes: chronological(visibleEpisodes) }),
+    [visibleEpisodes, meta?.title],
   );
 
   const onSubscribe = async () => {
@@ -135,7 +141,7 @@ export default function PodcastPreview() {
         const isPlaying = isCurrent && player.playing;
         const onPlay = () => {
           if (isCurrent) player.toggle();
-          else void player.play(e);
+          else void player.play(e, undefined, queue);
         };
         return (
           <div className="episode-row" key={e.episodeid}>

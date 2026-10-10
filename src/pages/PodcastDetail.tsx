@@ -7,6 +7,8 @@ import { cacheSet } from '../lib/db';
 import { stripHtml } from '../lib/format';
 import { isEffectivelyFinished } from '../lib/continueListening';
 import { buildSearchIndex, filterEpisodes } from '../lib/episodeSearch';
+import { chronological } from '../lib/playQueue';
+import type { Episode } from '../lib/types';
 import EpisodeRow from '../components/EpisodeRow';
 import { PlayedFilter, useHidePlayed } from '../components/PlayedFilter';
 
@@ -49,6 +51,21 @@ export default function PodcastDetail() {
     [unplayedEpisodes, searchIndex, query],
   );
   const searching = query.trim() !== '';
+
+  // Rows from this endpoint can omit the podcast fields.
+  const withPodcast = useMemo(() => {
+    const name = podcast?.podcastname || '';
+    return (e: Episode): Episode => ({ ...e, podcastid: id, podcastname: e.podcastname || name });
+  }, [id, podcast?.podcastname]);
+  // Previous/next follow publication order over what's shown (respecting the
+  // Unplayed filter and search), so a serialized story plays in order.
+  const queue = useMemo(
+    () => ({
+      source: podcast?.podcastname || 'Podcast',
+      episodes: chronological(visibleEpisodes.map(withPodcast)),
+    }),
+    [visibleEpisodes, withPodcast, podcast?.podcastname],
+  );
 
   // Long-running shows can have thousands of episodes; render them in chunks.
   const [shown, setShown] = useState(PAGE);
@@ -105,11 +122,7 @@ export default function PodcastDetail() {
         <div className="error-box">Couldn't load episodes: {eps.error.message}</div>
       )}
       {visibleEpisodes.slice(0, shown).map((e) => (
-        <EpisodeRow
-          key={e.episodeid}
-          episode={{ ...e, podcastid: id, podcastname: e.podcastname || podcast?.podcastname || '' }}
-          hidePodcast
-        />
+        <EpisodeRow key={e.episodeid} episode={withPodcast(e)} hidePodcast queue={queue} />
       ))}
       {visibleEpisodes.length > shown && (
         <button className="btn show-more" onClick={() => setShown((n) => n + PAGE)}>

@@ -42,6 +42,7 @@ export default function FullPlayer({ onClose, onNavigate }: Props) {
     setSleepRepeat,
     previousEpisode,
     nextEpisode,
+    upNextSource,
     playPrevious,
     playNext,
   } = usePlayer();
@@ -162,6 +163,12 @@ export default function FullPlayer({ onClose, onNavigate }: Props) {
           )}
         </button>
       </div>
+
+      {nextEpisode && (
+        <div className="fp-up-next" title={nextEpisode.episodetitle}>
+          Up next{upNextSource ? ` from ${upNextSource}` : ''}: {nextEpisode.episodetitle}
+        </div>
+      )}
 
       {sleepOpen && (
         <div className="sleep-panel">

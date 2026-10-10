@@ -36,6 +36,11 @@ export default function Home() {
       ),
     [recent.data],
   );
+  const continueQueue = useMemo(
+    () => ({ source: 'Continue listening', episodes: inProgress }),
+    [inProgress],
+  );
+  const latestQueue = useMemo(() => ({ source: 'Latest episodes', episodes: latest }), [latest]);
 
   return (
     <div>
@@ -48,7 +53,7 @@ export default function Home() {
         <section className="continue-listening">
           <h2 style={{ fontSize: 15, margin: '4px 0' }}>Continue listening</h2>
           {inProgress.map((e) => (
-            <EpisodeRow key={`h${e.episodeid}`} episode={e} />
+            <EpisodeRow key={`h${e.episodeid}`} episode={e} queue={continueQueue} />
           ))}
         </section>
       )}
@@ -64,7 +69,7 @@ export default function Home() {
         <div className="error-box">Couldn't load episodes: {recent.error.message}</div>
       )}
       {latest.map((e) => (
-        <EpisodeRow key={e.episodeid} episode={e} />
+        <EpisodeRow key={e.episodeid} episode={e} queue={latestQueue} />
       ))}
       {recent.data?.length === 0 && (
         <div className="notice">
