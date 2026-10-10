@@ -5,6 +5,7 @@ import { subscribeDownloads } from '../lib/downloads';
 import type { DownloadEntry } from '../lib/types';
 import { formatBytes } from '../lib/format';
 import EpisodeRow from '../components/EpisodeRow';
+import { chronologicalByPodcast } from '../lib/playQueue';
 
 export default function Downloads() {
   const account = useActiveAccount();
@@ -24,8 +25,13 @@ export default function Downloads() {
     };
   }, [account.id]);
 
+  // Shown newest download first, but played as a story: each podcast's
+  // downloads in publication order, so part 1 leads to part 2.
   const queue = useMemo(
-    () => ({ source: 'Downloads', episodes: (entries ?? []).map((d) => d.episode) }),
+    () => ({
+      source: 'Downloads',
+      episodes: chronologicalByPodcast((entries ?? []).map((d) => d.episode)),
+    }),
     [entries],
   );
   const totalSize = (entries ?? []).reduce((sum, e) => sum + e.size, 0);

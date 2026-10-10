@@ -132,7 +132,8 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
 
   const onPlay = () => {
     if (guardLongPress()) return;
-    if (isCurrent) player.toggle();
+    // Resuming from a list adopts it, so next/previous follow this list.
+    if (isPlaying) player.toggle();
     else void player.play(episode, undefined, queue);
   };
 

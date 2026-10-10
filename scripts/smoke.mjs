@@ -761,6 +761,71 @@ async function main() {
   await page.click('nav.sidebar a[href="/accounts"]');
   await page.waitForSelector('.account-row');
 
+  // ---- Downloads play as a story: per podcast, by publication date ----
+  // Downloaded One, then a Long Cast episode, then Four: the page shows
+  // Four, Long, One (newest download first). Played from One, next is Four
+  // (same podcast, published after) and there is no previous — sorting all
+  // downloads by date alone would put the older Long Cast episode before it.
+  const seeded = [episodes[0], bigPodcast[0], episodes[3]];
+  await page.evaluate(async (eps) => {
+    const accountId = localStorage.getItem('pinepods.activeAccountId');
+    const blob = await (await fetch(eps[0].episodeurl)).blob();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open('pinepods-offline');
+      req.onsuccess = () => {
+        const tx = req.result.transaction(['downloads', 'downloadBlobs'], 'readwrite');
+        eps.forEach((ep, i) => {
+          const key = `${accountId}:${ep.episodeid}`;
+          tx.objectStore('downloads').put({
+            key,
+            accountId,
+            episode: ep,
+            mimeType: 'audio/wav',
+            size: blob.size,
+            downloadedAt: Date.now() + i,
+          });
+          tx.objectStore('downloadBlobs').put({ key, blob });
+        });
+        tx.oncomplete = () => resolve(undefined);
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }, seeded);
+  await page.click('nav.sidebar a[href="/downloads"]');
+  await page.waitForFunction(() => document.querySelectorAll('.episode-row').length === 3);
+  const shown = await page.$$eval('.episode-row .episode-title', (els) =>
+    els.map((el) => el.textContent),
+  );
+  if (shown.join() !== 'Episode Four,Long Ep 450,Episode One')
+    throw new Error(`Downloads should list newest download first, got ${shown}`);
+  await page.click('.episode-row:has-text("Episode One") button[title="Play"]');
+  await page.click('.player-bar .player-info');
+  await page.waitForSelector('.full-player button[title="Next: Episode Four"]');
+  if (!(await page.isDisabled('.full-player button[aria-label="Previous episode"]')))
+    throw new Error('Downloads queue should not jump to another podcast before One');
+  await page.click('.full-player-top .icon-btn');
+  await page.waitForSelector('.full-player', { state: 'detached' });
+  await page.evaluate(async (eps) => {
+    const accountId = localStorage.getItem('pinepods.activeAccountId');
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open('pinepods-offline');
+      req.onsuccess = () => {
+        const tx = req.result.transaction(['downloads', 'downloadBlobs'], 'readwrite');
+        for (const ep of eps) {
+          tx.objectStore('downloads').delete(`${accountId}:${ep.episodeid}`);
+          tx.objectStore('downloadBlobs').delete(`${accountId}:${ep.episodeid}`);
+        }
+        tx.oncomplete = () => resolve(undefined);
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }, seeded);
+  console.log('PASS downloads play per podcast in publication order');
+  await page.click('nav.sidebar a[href="/accounts"]');
+  await page.waitForSelector('.account-row');
+
   // ---- transfer podcasts to a second account ----
   await page.click('.btn:has-text("Add account")');
   await page.waitForSelector('.login-card');
