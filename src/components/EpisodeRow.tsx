@@ -89,7 +89,9 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
   const listened = isCurrent
     ? player.position
     : Math.max(localSeconds ?? 0, episode.listenduration ?? 0);
-  const total = episode.episodeduration || 0;
+  // The loaded file's length beats the feed's (ad insertion makes them differ),
+  // so the playing row agrees with the player bar.
+  const total = (isCurrent && player.duration) || episode.episodeduration || 0;
   // A completed episode shows a full bar — that's its "played" indicator.
   const fraction = completed ? 1 : total > 0 ? Math.min(1, listened / total) : 0;
   const started = listened > 5 && !completed;
