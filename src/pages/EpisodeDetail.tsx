@@ -83,7 +83,7 @@ export default function EpisodeDetail() {
     if (isCurrent && player.episode?.completed) setCompleted(true);
   }, [isCurrent, player.episode?.completed]);
   const listened = isCurrent ? player.position : Math.max(localSeconds, episode?.listenduration ?? 0);
-  const total = episode?.episodeduration ?? 0;
+  const total = (isCurrent && player.duration) || episode?.episodeduration || 0;
   const started = listened > 5 && !isCompleted;
 
   const onPlay = () => {
