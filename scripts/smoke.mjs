@@ -737,6 +737,9 @@ async function main() {
     null,
     { timeout: 15000 },
   );
+  // The list stayed mounted while Four finished: its row shows it played
+  // without a reload.
+  await page.waitForSelector('.episode-row:has-text("Episode Four") .episode-title.played');
   await page.click('nav.sidebar a[href="/accounts"]');
   await page.click('.autoplay-toggle button:has-text("Off")');
   console.log('PASS autoplay next episode when enabled');

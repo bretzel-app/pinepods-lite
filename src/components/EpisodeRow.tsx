@@ -14,7 +14,12 @@ import {
 } from '../lib/downloads';
 import { saveEpisode, unsaveEpisode } from '../lib/api';
 import { runOrQueue } from '../lib/sync';
-import { markCompleted, markUncompleted } from '../lib/episodeActions';
+import {
+  knownCompleted,
+  markCompleted,
+  markUncompleted,
+  subscribeCompletion,
+} from '../lib/episodeActions';
 import { useBackDismiss } from '../lib/useBackDismiss';
 import {
   CheckIcon,
@@ -44,7 +49,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
   const player = usePlayer();
   const navigate = useNavigate();
   const [saved, setSaved] = useState(episode.saved);
-  const [completed, setCompleted] = useState(episode.completed);
+  const [completed, setCompleted] = useState(() => knownCompleted(account.id, episode));
   const [localDownload, setLocalDownload] = useState(false);
   const [progress, setProgress] = useState<number | undefined>(undefined);
   const [downloading, setDownloading] = useState(false);
@@ -53,7 +58,19 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
   const { openWithHistory: openSheet, close: closeSheet } = useBackDismiss(sheetOpen, setSheetOpen);
 
   useEffect(() => setSaved(episode.saved), [episode.saved]);
-  useEffect(() => setCompleted(episode.completed), [episode.completed]);
+  useEffect(
+    () => setCompleted(knownCompleted(account.id, episode)),
+    [account.id, episode.episodeid, episode.completed],
+  );
+  // Played elsewhere while this row stays mounted, e.g. finished in the full
+  // player, which overlays the list rather than replacing it.
+  useEffect(
+    () =>
+      subscribeCompletion((accountId, episodeId, done) => {
+        if (accountId === account.id && episodeId === episode.episodeid) setCompleted(done);
+      }),
+    [account.id, episode.episodeid],
+  );
 
   // Track local download presence + in-flight progress.
   useEffect(() => {
@@ -76,14 +93,16 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
     };
   }, [account.id, episode.episodeid]);
 
-  // Local resume position beats server listenduration when fresher.
+  const isCurrent = player.episode?.episodeid === episode.episodeid;
+
+  // Local resume position beats server listenduration when fresher. Re-read
+  // when playback moves on to another episode so the row keeps the progress
+  // just made instead of what it had when it mounted.
   useEffect(() => {
     getLocalPosition(account.id, episode.episodeid).then((p) => {
       if (p) setLocalSeconds(p.seconds);
     });
-  }, [account.id, episode.episodeid]);
-
-  const isCurrent = player.episode?.episodeid === episode.episodeid;
+  }, [account.id, episode.episodeid, isCurrent]);
   const isPlaying = isCurrent && player.playing;
 
   const listened = isCurrent
