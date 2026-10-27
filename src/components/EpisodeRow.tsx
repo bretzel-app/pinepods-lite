@@ -23,6 +23,7 @@ import {
 import { useBackDismiss } from '../lib/useBackDismiss';
 import {
   CheckIcon,
+  CloseIcon,
   DownloadIcon,
   GridIcon,
   MoreIcon,
@@ -40,11 +41,19 @@ interface Props {
   onChanged?: () => void;
   /** The list this row belongs to; previous/next in the player walk it. */
   queue?: PlayQueue;
+  /** Offer taking the episode off this list (e.g. Continue listening). */
+  removeFromList?: { label: string; onRemove: () => void };
 }
 
 const LONG_PRESS_MS = 500;
 
-export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: Props) {
+export default function EpisodeRow({
+  episode,
+  hidePodcast,
+  onChanged,
+  queue,
+  removeFromList,
+}: Props) {
   const account = useActiveAccount();
   const player = usePlayer();
   const navigate = useNavigate();
@@ -315,6 +324,12 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
                   ? 'Remove download'
                   : 'Download for offline'}
             </button>
+            {removeFromList && (
+              <button onClick={sheetAction(removeFromList.onRemove)}>
+                <CloseIcon />
+                {removeFromList.label}
+              </button>
+            )}
             {episode.podcastid != null && (
               <button onClick={() => closeSheet(() => navigate(`/podcasts/${episode.podcastid}`))}>
                 <GridIcon />

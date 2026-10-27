@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useActiveAccount } from '../lib/accounts';
 import { getRecentEpisodes, getUserHistory } from '../lib/api';
 import { useCached } from '../lib/useCached';
-import { buildContinueListening, isEffectivelyFinished } from '../lib/continueListening';
-import type { Episode } from '../lib/types';
+import {
+  buildContinueListening,
+  dismissFromContinueListening,
+  isEffectivelyFinished,
+  type ContinueEntry,
+} from '../lib/continueListening';
 import EpisodeRow from '../components/EpisodeRow';
 
 export default function Home() {
@@ -16,16 +20,25 @@ export default function Home() {
   });
 
   // Server history merged with local (offline) progress, finished ones dropped.
-  const [inProgress, setInProgress] = useState<Episode[]>([]);
+  const [continueEntries, setContinueEntries] = useState<ContinueEntry[]>([]);
   useEffect(() => {
     let cancelled = false;
     buildContinueListening(account, history.data ?? []).then((list) => {
-      if (!cancelled) setInProgress(list);
+      if (!cancelled) setContinueEntries(list);
     });
     return () => {
       cancelled = true;
     };
   }, [account, history.data]);
+  const inProgress = useMemo(() => continueEntries.map((c) => c.episode), [continueEntries]);
+
+  const removeFromContinue = useCallback(
+    (entry: ContinueEntry) => {
+      setContinueEntries((list) => list.filter((c) => c !== entry));
+      void dismissFromContinueListening(account.id, entry);
+    },
+    [account.id],
+  );
 
   // Home is a "what's next" feed: finished episodes have no business here.
   // (Podcast pages keep the All/Unplayed toggle for browsing back-catalog.)
@@ -52,8 +65,16 @@ export default function Home() {
       {inProgress.length > 0 && (
         <section className="continue-listening">
           <h2 style={{ fontSize: 15, margin: '4px 0' }}>Continue listening</h2>
-          {inProgress.map((e) => (
-            <EpisodeRow key={`h${e.episodeid}`} episode={e} queue={continueQueue} />
+          {continueEntries.map((c) => (
+            <EpisodeRow
+              key={`h${c.episode.episodeid}`}
+              episode={c.episode}
+              queue={continueQueue}
+              removeFromList={{
+                label: 'Remove from Continue listening',
+                onRemove: () => removeFromContinue(c),
+              }}
+            />
           ))}
         </section>
       )}

@@ -154,3 +154,9 @@ export const PlusIcon = ({ className }: IconProps) => (
     <path d="M12 5v14M5 12h14" />
   </svg>
 );
+
+export const CloseIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M6 6l12 12M18 6 6 18" />
+  </svg>
+);

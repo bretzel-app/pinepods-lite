@@ -377,6 +377,42 @@ async function main() {
   );
   console.log('PASS offline progress merged into Continue listening');
 
+  // ---- remove from Continue listening; new activity brings it back ----
+  const fourInContinue = () =>
+    document.querySelector('.continue-listening')?.textContent.includes('Episode Four');
+  await page.click('.continue-listening .episode-row:has-text("Episode Four") button[title="More"]');
+  await page.click('.action-sheet button:has-text("Remove from Continue listening")');
+  await page.waitForSelector('.continue-listening .episode-row:has-text("Episode Four")', {
+    state: 'detached',
+  });
+  await page.click('nav.sidebar a[href="/saved"]');
+  await page.click('nav.sidebar a[href="/"]');
+  await page.waitForSelector('.continue-listening:has-text("Episode One")');
+  if (await page.evaluate(fourInContinue))
+    throw new Error('Removed episode came back without new activity');
+  // Removing doesn't mark it played or drop its progress.
+  const fourRow = await page.textContent('.episode-row:has-text("Episode Four")');
+  if (!fourRow.includes('left')) throw new Error('Removing lost the episode progress');
+  await page.evaluate(async () => {
+    const accountId = localStorage.getItem('pinepods.activeAccountId');
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open('pinepods-offline');
+      req.onsuccess = () => {
+        const tx = req.result.transaction('positions', 'readwrite');
+        const store = tx.objectStore('positions');
+        const get = store.get(`${accountId}:104`);
+        get.onsuccess = () => store.put({ ...get.result, seconds: 520, updatedAt: Date.now() + 1000 });
+        tx.oncomplete = () => resolve(undefined);
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  });
+  await page.click('nav.sidebar a[href="/saved"]');
+  await page.click('nav.sidebar a[href="/"]');
+  await page.waitForFunction(fourInContinue, null, { timeout: 10000 });
+  console.log('PASS remove from Continue listening until listened again');
+
   // ---- podcasts page + detail (capitalized keys path) ----
   await page.click('nav.sidebar a[href="/podcasts"]');
   await page.waitForSelector('.pod-card');
