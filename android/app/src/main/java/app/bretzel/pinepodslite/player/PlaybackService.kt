@@ -16,6 +16,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
+import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -220,6 +221,17 @@ class PlaybackService : MediaLibraryService() {
         }
 
         val builder = MediaLibrarySession.Builder(this, sessionPlayer, sessionCallback)
+            // Artwork for the notification and lock screen over the same HTTP
+            // stack as the audio: feeds often redirect http artwork to https,
+            // which Media3's default loader refuses (no cross-protocol redirects).
+            .setBitmapLoader(
+                DataSourceBitmapLoader.Builder(this)
+                    .setDataSourceFactory(DefaultDataSource.Factory(this, http))
+                    // As Media3's default: headroom for its power-of-2 decoder;
+                    // the session then scales down to its exact limit.
+                    .setMaximumOutputDimension(MediaSession.getBitmapDimensionLimit(this) * 2 - 1)
+                    .build()
+            )
         launchAppIntent()?.let { builder.setSessionActivity(it) }
         session = builder.build()
         instance = this
