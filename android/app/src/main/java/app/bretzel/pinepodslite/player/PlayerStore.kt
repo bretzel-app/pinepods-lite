@@ -5,11 +5,15 @@ import android.content.Context
 /**
  * What the native player keeps across process death, in SharedPreferences
  * `player`: the report journal, the item to resume, and the settings the
- * playback service needs without the UI (sleep timer, auto-advance).
+ * playback service needs without the UI (sleep timer, auto-advance). The
+ * playlist has its own file, `player-playlist`: it is large (every item
+ * carries its episode) and changes rarely, while the journal is rewritten
+ * every few seconds of playback.
  * Writes use apply(); call from the main thread.
  */
 class PlayerStore(context: Context) {
     private val prefs = context.getSharedPreferences("player", Context.MODE_PRIVATE)
+    private val playlistPrefs = context.getSharedPreferences("player-playlist", Context.MODE_PRIVATE)
 
     fun loadJournal(): ReportJournal = ReportJournal.fromJson(prefs.getString(JOURNAL, null))
 
@@ -21,6 +25,12 @@ class PlayerStore(context: Context) {
 
     fun saveResume(resume: ResumeState) {
         prefs.edit().putString(RESUME, resume.toJson()).apply()
+    }
+
+    fun loadPlaylist(): SavedPlaylist? = SavedPlaylist.fromJson(playlistPrefs.getString(PLAYLIST, null))
+
+    fun savePlaylist(playlist: SavedPlaylist) {
+        playlistPrefs.edit().putString(PLAYLIST, playlist.toJson()).apply()
     }
 
     var sleepMinutes: Int?
@@ -42,6 +52,7 @@ class PlayerStore(context: Context) {
     private companion object {
         const val JOURNAL = "journal"
         const val RESUME = "resume"
+        const val PLAYLIST = "playlist"
         const val SLEEP_MINUTES = "sleepMinutes"
         const val SLEEP_REPEAT = "sleepRepeat"
         const val AUTO_ADVANCE = "autoAdvance"

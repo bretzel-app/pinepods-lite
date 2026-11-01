@@ -30,18 +30,7 @@ import androidx.media3.session.SessionError
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-
-/** A playlist entry from the web code (NativeItem in plugins.ts), times in ms. */
-data class PlayerItem(
-    val key: String,
-    val uri: String,
-    val title: String,
-    val artist: String,
-    val artworkUrl: String,
-    val startAtMs: Long,
-    val durationMs: Long,
-    val payload: String,
-)
+import java.io.File
 
 /** What the web code sees (NativeState in plugins.ts), times in seconds. */
 data class PlayerSnapshot(
@@ -61,7 +50,12 @@ data class PlayerSnapshot(
  * the web code to sync when it next runs. All methods run on the main thread.
  *
  * Its current item is the player's, or with nothing loaded (a fresh process)
- * the stored resume item, which play/seek/updatePlaylist then cue.
+ * the stored resume item, which play/seek/updatePlaylist then cue together
+ * with the rest of the stored playlist.
+ *
+ * A download whose file is gone streams its enclosure instead (see
+ * [MissingDownload]): items are checked as they are handed over or restored,
+ * and the current one again before it is played and when it fails.
  */
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaLibraryService() {
@@ -129,6 +123,24 @@ class PlaybackService : MediaLibraryService() {
             mediaItem(key, uri, title, artist, artworkUrl, durationMs, payload, positionMs)
 
         private fun MediaItem.payload(): String = mediaMetadata.extras?.getString(EXTRA_PAYLOAD) ?: ""
+
+        /** As stored for a later resume; null without a playable URI. */
+        private fun MediaItem.toPlayerItem(): PlayerItem? {
+            val uri = localConfiguration?.uri?.toString() ?: return null
+            val extras = mediaMetadata.extras
+            return PlayerItem(
+                mediaId, uri, mediaMetadata.title?.toString() ?: "", mediaMetadata.artist?.toString() ?: "",
+                mediaMetadata.artworkUri?.toString() ?: "", extras?.getLong(EXTRA_START_AT_MS) ?: 0L,
+                extras?.getLong(EXTRA_DURATION_MS) ?: 0L, payload(),
+            )
+        }
+
+        /** This item, or, for a download whose file is gone, its enclosure streamed instead. */
+        private fun MediaItem.playable(): MediaItem {
+            val uri = localConfiguration?.uri?.toString() ?: return this
+            val stream = MissingDownload.streamUri(uri, payload()) { File(it).exists() } ?: return this
+            return buildUpon().setUri(stream).build()
+        }
     }
 
     /** An item's last known position, kept for when it stops being current. */
@@ -188,12 +200,22 @@ class PlaybackService : MediaLibraryService() {
             // Auto-advance never calls play(), so it doesn't count.
             override fun play() {
                 onUserPlay()
+                streamCurrentIfMissing()
                 super.play()
             }
 
             override fun setPlayWhenReady(playWhenReady: Boolean) {
-                if (playWhenReady) onUserPlay()
+                if (playWhenReady) {
+                    onUserPlay()
+                    streamCurrentIfMissing()
+                }
                 super.setPlayWhenReady(playWhenReady)
+            }
+
+            // A play from idle prepares first: swap a dead file before it is read.
+            override fun prepare() {
+                streamCurrentIfMissing()
+                super.prepare()
             }
         }
 
@@ -224,11 +246,12 @@ class PlaybackService : MediaLibraryService() {
         val first = items.getOrNull(index) ?: return
         if (!autoplay) player.pause() // checkpoints the outgoing item if it was playing
         tracked = currentTracked()
-        player.setMediaItems(items.map { it.toMediaItem() }, index, first.startAtMs)
+        player.setMediaItems(items.map { it.toMediaItem().playable() }, index, first.startAtMs)
         endedKey = null
         player.prepare()
         if (autoplay) sessionPlayer.play() // a press of play, even when already playing
         persistResume()
+        persistPlaylist()
         emitState()
     }
 
@@ -244,14 +267,18 @@ class PlaybackService : MediaLibraryService() {
         if (at < 0 || !ensureCued()) return
         val current = player.currentMediaItemIndex
         // The tail first: the current index is still valid for the head.
-        player.replaceMediaItems(current + 1, player.mediaItemCount, items.drop(at + 1).map { it.toMediaItem() })
-        player.replaceMediaItems(0, current, items.take(at).map { it.toMediaItem() })
+        player.replaceMediaItems(
+            current + 1, player.mediaItemCount, items.drop(at + 1).map { it.toMediaItem().playable() },
+        )
+        player.replaceMediaItems(0, current, items.take(at).map { it.toMediaItem().playable() })
+        persistPlaylist()
     }
 
     fun play() {
         if (!ensureCued()) return
         // Prepares again after an error (at the current position) or when only
-        // cued, and restarts an ended item. Through sessionPlayer: a press of play.
+        // cued, and restarts an ended item. Through sessionPlayer: a press of
+        // play, which also swaps a download whose file is gone for a stream.
         Util.handlePlayButtonAction(sessionPlayer)
     }
 
@@ -317,6 +344,7 @@ class PlaybackService : MediaLibraryService() {
             }
             tracked = currentTracked()
             persistResume()
+            persistPlaylist()
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -340,7 +368,11 @@ class PlaybackService : MediaLibraryService() {
             persistResume()
         }
 
-        override fun onPlayerError(error: PlaybackException) = checkpoint()
+        override fun onPlayerError(error: PlaybackException) {
+            checkpoint()
+            // E.g. its download was deleted meanwhile: stream it from where it was.
+            streamCurrentIfMissing()
+        }
 
         override fun onEvents(player: Player, events: Player.Events) {
             tracked = currentTracked() ?: tracked
@@ -428,6 +460,8 @@ class PlaybackService : MediaLibraryService() {
         val seconds = maxOf(t.durationMs, t.positionMs) / 1000.0
         journal.recordEnded(t.item.mediaId, t.item.payload(), seconds, System.currentTimeMillis())
         journalChanged()
+        // An ended item resumes from its start, also after process death.
+        persistResume()
     }
 
     private fun journalChanged() {
@@ -449,12 +483,58 @@ class PlaybackService : MediaLibraryService() {
         )
     }
 
-    /** With nothing loaded, cue the stored resume item (paused). False if there is none. */
+    /** Save the playlist and which item is current, for a resume after process death. */
+    private fun persistPlaylist() {
+        val count = player.mediaItemCount
+        if (count == 0) return
+        val items = (0 until count).map { player.getMediaItemAt(it).toPlayerItem() ?: return }
+        store.savePlaylist(SavedPlaylist(items, player.currentMediaItemIndex))
+    }
+
+    /**
+     * The stored playlist with the stored resume item current (at its stored
+     * position), every item playable; just the resume item when the stored
+     * playlist is missing or is not around it. Stored fields only, no network.
+     */
+    private fun restoredPlaylist(resume: ResumeState): Pair<List<MediaItem>, Int> {
+        val saved = store.loadPlaylist()?.takeIf { it.current.key == resume.key }
+            ?: return listOf(resume.toMediaItem().playable()) to 0
+        val items = saved.items.mapIndexed { i, item ->
+            if (i == saved.index) resume.toMediaItem() else item.toMediaItem()
+        }
+        return items.map { it.playable() } to saved.index
+    }
+
+    /** With nothing loaded, cue the stored playlist at the resume item (paused). False if there is none. */
     private fun ensureCued(): Boolean {
         if (player.mediaItemCount > 0) return true
         val resume = store.loadResume() ?: return false
-        player.setMediaItem(resume.toMediaItem(), resume.positionMs)
+        val (items, index) = restoredPlaylist(resume)
+        player.setMediaItems(items, index, resume.positionMs)
         tracked = currentTracked()
+        return true
+    }
+
+    /**
+     * The current item is a download whose file is gone (deleted, marked
+     * played, swept as completed): stream its enclosure instead, as the
+     * browser does, from where it was, or from its start once it has ended.
+     * Not while it sits paused at its end: going on from there reads nothing
+     * (and restarting would report its ending twice). True when swapped.
+     */
+    private fun streamCurrentIfMissing(): Boolean {
+        val item = player.currentMediaItem ?: return false
+        val streamed = item.playable()
+        if (streamed === item) return false
+        val state = player.playbackState
+        val ended = item.mediaId == endedKey || state == Player.STATE_ENDED
+        if (ended && (state == Player.STATE_READY || state == Player.STATE_BUFFERING)) return false
+        val index = player.currentMediaItemIndex
+        val items = (0 until player.mediaItemCount).map { if (it == index) streamed else player.getMediaItemAt(it) }
+        player.setMediaItems(items, index, if (ended) 0L else player.currentPosition)
+        player.prepare()
+        persistResume()
+        persistPlaylist()
         return true
     }
 
@@ -525,16 +605,22 @@ class PlaybackService : MediaLibraryService() {
         }
 
         // A play with nothing loaded (headphones or the resume card after the
-        // process died): the stored item at its stored position. Stored fields
-        // only, so no network is needed, also when isForPlayback is false (boot).
+        // process died): the stored playlist, so auto-advance goes on, at the
+        // stored item and position. Stored fields only, so no network is
+        // needed. When not for playback (the system asking at boot what to
+        // show), just the stored item.
         override fun onPlaybackResumption(
             mediaSession: MediaSession, controller: MediaSession.ControllerInfo, isForPlayback: Boolean,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             val resume = store.loadResume()
                 ?: return Futures.immediateFailedFuture(UnsupportedOperationException("Nothing to resume"))
-            return Futures.immediateFuture(
-                MediaSession.MediaItemsWithStartPosition(listOf(resume.toMediaItem()), 0, resume.positionMs)
-            )
+            if (!isForPlayback) {
+                return Futures.immediateFuture(
+                    MediaSession.MediaItemsWithStartPosition(listOf(resume.toMediaItem()), 0, resume.positionMs)
+                )
+            }
+            val (items, index) = restoredPlaylist(resume)
+            return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(items, index, resume.positionMs))
         }
     }
 
