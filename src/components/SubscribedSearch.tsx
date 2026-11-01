@@ -33,10 +33,11 @@ export default function SubscribedSearch() {
 
   useEffect(() => {
     cacheGet<LastSearch>(account.id, 'last-episode-search').then((s) => {
-      if (s) {
-        setQuery(s.query);
-        setLast(s);
-      }
+      if (!s) return;
+      // The read is async: never clobber a query typed (or a search run)
+      // before it resolved.
+      setQuery((q) => q || s.query);
+      setLast((l) => l ?? s);
     });
   }, [account.id]);
 

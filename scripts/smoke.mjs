@@ -890,6 +890,11 @@ async function main() {
   // ---- subscribed-episode search falls back to the on-device cache ----
   await page.click('nav.sidebar a[href="/search"]');
   await page.click('.search-scope button:has-text("My podcasts")');
+  // The earlier "two" search is restored asynchronously; let it land first so
+  // it can't move the caret mid-fill and get the new query appended to it.
+  await page.waitForFunction(
+    () => document.querySelector('input[type=search]')?.value === 'two',
+  );
   await page.fill('input[type=search]', 'second test');
   await page.click('.searchbar button');
   await page.waitForFunction(() =>
