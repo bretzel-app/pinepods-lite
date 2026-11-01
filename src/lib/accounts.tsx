@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { Account } from './types';
 import { listAccounts, putAccount, removeAccount as dbRemoveAccount } from './db';
+import { getDownloadBackend } from './downloadBackend';
 import { getUserDetails, login } from './api';
 
 const ACTIVE_KEY = 'pinepods.activeAccountId';
@@ -88,6 +89,7 @@ export function AccountsProvider({ children }: { children: ReactNode }) {
   const removeAccount = useCallback(
     async (id: string) => {
       await dbRemoveAccount(id);
+      await getDownloadBackend().removeAccount(id);
       setAccounts((prev) => {
         const next = prev.filter((a) => a.id !== id);
         if (localStorage.getItem(ACTIVE_KEY) === id) {

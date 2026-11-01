@@ -136,6 +136,12 @@ export async function putDownload(entry: DownloadEntry, blob: Blob): Promise<voi
   await tx.done;
 }
 
+/** Metadata only — for backends that keep the bytes elsewhere (e.g. native files). */
+export async function putDownloadEntry(entry: DownloadEntry): Promise<void> {
+  const db = await getDB();
+  await db.put('downloads', entry);
+}
+
 export async function deleteDownload(accountId: string, episodeId: number): Promise<void> {
   const db = await getDB();
   const key = `${accountId}:${episodeId}`;

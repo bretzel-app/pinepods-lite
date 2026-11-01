@@ -1,5 +1,6 @@
 import type { Account, Episode } from './types';
-import { deleteDownload, getDownload, listDownloads, putDownload } from './db';
+import { getDownload, listDownloads } from './db';
+import { getDownloadBackend } from './downloadBackend';
 import { getEpisodeMetadata, requestServerDownload, serverStreamUrl } from './api';
 
 /**
@@ -60,29 +61,6 @@ function setProgress(p: DownloadProgress) {
   notify();
 }
 
-async function fetchWithProgress(url: string, episodeId: number, phase: DownloadPhase): Promise<Blob> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const total = Number(res.headers.get('Content-Length') ?? 0);
-  const type = res.headers.get('Content-Type') ?? 'audio/mpeg';
-  if (!res.body || !total) {
-    setProgress({ episodeId, phase });
-    const blob = await res.blob();
-    return blob.type ? blob : new Blob([blob], { type });
-  }
-  const reader = res.body.getReader();
-  const chunks: BlobPart[] = [];
-  let received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.byteLength;
-    setProgress({ episodeId, phase, fraction: received / total });
-  }
-  return new Blob(chunks, { type });
-}
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Audio files are buffered in memory while downloading; running many in
@@ -120,17 +98,21 @@ export async function downloadEpisode(account: Account, episode: Episode): Promi
     return;
   }
   try {
-    let blob: Blob | null = null;
+    const backend = getDownloadBackend();
+    const pending = { key: `${account.id}:${episodeId}`, accountId: account.id, episode };
+    const progressFor = (phase: DownloadPhase) => (fraction?: number) =>
+      setProgress({ episodeId, phase, fraction });
 
     // Strategy 1: straight from the podcast CDN.
+    let stored = true;
     try {
-      blob = await fetchWithProgress(episode.episodeurl, episodeId, 'fetching');
+      await backend.fetchAndStore(episode.episodeurl, pending, progressFor('fetching'));
     } catch {
-      blob = null;
+      stored = false;
     }
 
     // Strategy 2: server-side download, then stream the bytes from the server.
-    if (!blob) {
+    if (!stored) {
       setProgress({ episodeId, phase: 'server_downloading' });
       if (!episode.downloaded) {
         await requestServerDownload(account, episodeId);
@@ -143,21 +125,8 @@ export async function downloadEpisode(account: Account, episode: Episode): Promi
           if (Date.now() > deadline) throw new Error('Server download timed out');
         }
       }
-      blob = await fetchWithProgress(serverStreamUrl(account, episodeId), episodeId, 'fetching');
+      await backend.fetchAndStore(serverStreamUrl(account, episodeId), pending, progressFor('fetching'));
     }
-
-    setProgress({ episodeId, phase: 'storing' });
-    await putDownload(
-      {
-        key: `${account.id}:${episodeId}`,
-        accountId: account.id,
-        episode,
-        mimeType: blob.type || 'audio/mpeg',
-        size: blob.size,
-        downloadedAt: Date.now(),
-      },
-      blob,
-    );
   } finally {
     releaseDownloadSlot();
     inFlight.delete(episodeId);
@@ -166,8 +135,13 @@ export async function downloadEpisode(account: Account, episode: Episode): Promi
   }
 }
 
+/** Pick up downloads that finished while the UI wasn't running (native backends). */
+export async function recoverDownloads(): Promise<void> {
+  if ((await getDownloadBackend().recoverFinished()) > 0) notify();
+}
+
 export async function removeDownloadedEpisode(account: Account, episodeId: number): Promise<void> {
-  await deleteDownload(account.id, episodeId);
+  await getDownloadBackend().remove(account.id, episodeId);
   notify();
 }
 
@@ -184,7 +158,7 @@ export async function sweepCompletedDownloads(account: Account): Promise<number>
     try {
       const meta = await getEpisodeMetadata(account, entry.episode.episodeid);
       if (meta.completed) {
-        await deleteDownload(account.id, entry.episode.episodeid);
+        await getDownloadBackend().remove(account.id, entry.episode.episodeid);
         removed++;
       }
     } catch {

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAccounts } from './lib/accounts';
 import { installSyncTriggers } from './lib/sync';
-import { sweepCompletedDownloads } from './lib/downloads';
+import { recoverDownloads, sweepCompletedDownloads } from './lib/downloads';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Home from './pages/Home';
@@ -32,7 +32,7 @@ export default function App() {
   useEffect(() => {
     if (!active || sweptRef.current.has(active.id)) return;
     sweptRef.current.add(active.id);
-    void sweepCompletedDownloads(active);
+    void recoverDownloads().then(() => sweepCompletedDownloads(active));
   }, [active]);
 
   if (!ready) return null;
