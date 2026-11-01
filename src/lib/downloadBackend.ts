@@ -1,5 +1,6 @@
 import type { DownloadEntry } from './types';
-import { deleteDownload, putDownload } from './db';
+import { deleteDownload, putDownload, putDownloadEntry } from './db';
+import { NativeDownloads, isNative } from '../native/plugins';
 
 /**
  * Where downloaded episode bytes end up. The browser keeps them as blobs in
@@ -86,6 +87,66 @@ export const webDownloadBackend: DownloadBackend = {
   },
 };
 
+const POLL_MS = 500;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Android: DownloadManager writes real files; IndexedDB keeps only the metadata. */
+export const nativeDownloadBackend: DownloadBackend = {
+  async fetchAndStore(url, pending, onProgress) {
+    await NativeDownloads.start({
+      key: pending.key,
+      url,
+      title: pending.episode.episodetitle,
+      entry: JSON.stringify(pending),
+    });
+    for (;;) {
+      await sleep(POLL_MS);
+      const s = await NativeDownloads.status({ key: pending.key });
+      if (s.state === 'running') {
+        onProgress(s.fraction);
+        continue;
+      }
+      if (s.state === 'done') {
+        const entry: DownloadEntry = {
+          ...pending,
+          filePath: s.filePath,
+          mimeType: s.mimeType || 'audio/mpeg',
+          size: s.size ?? 0,
+          downloadedAt: Date.now(),
+        };
+        await putDownloadEntry(entry);
+        await NativeDownloads.forget({ key: pending.key });
+        return entry;
+      }
+      // failed or unknown: let downloadEpisode fall back to the server strategy.
+      await NativeDownloads.forget({ key: pending.key });
+      throw new DownloadFetchError('Download failed');
+    }
+  },
+  async remove(accountId, episodeId) {
+    await deleteDownload(accountId, episodeId);
+    await NativeDownloads.remove({ key: `${accountId}:${episodeId}` });
+  },
+  async removeAccount(accountId) {
+    await NativeDownloads.removeByPrefix({ prefix: `${accountId}_` });
+  },
+  async recoverFinished() {
+    const { downloads } = await NativeDownloads.finished();
+    for (const d of downloads) {
+      const pending = JSON.parse(d.entry) as PendingDownload;
+      await putDownloadEntry({
+        ...pending,
+        filePath: d.filePath,
+        mimeType: d.mimeType,
+        size: d.size,
+        downloadedAt: Date.now(),
+      });
+      await NativeDownloads.forget({ key: d.key });
+    }
+    return downloads.length;
+  },
+};
+
 export function getDownloadBackend(): DownloadBackend {
-  return webDownloadBackend;
+  return isNative() ? nativeDownloadBackend : webDownloadBackend;
 }

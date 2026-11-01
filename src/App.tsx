@@ -32,7 +32,9 @@ export default function App() {
   useEffect(() => {
     if (!active || sweptRef.current.has(active.id)) return;
     sweptRef.current.add(active.id);
-    void recoverDownloads().then(() => sweepCompletedDownloads(active));
+    void recoverDownloads()
+      .catch(() => {})
+      .then(() => sweepCompletedDownloads(active));
   }, [active]);
 
   if (!ready) return null;

@@ -53,5 +53,23 @@ export interface NativePlayerPlugin {
 
 export const NativePlayer = registerPlugin<NativePlayerPlugin>('NativePlayer');
 
+/** Android DownloadManager downloads (NativeDownloadsPlugin.kt). */
+export interface NativeDownloadsPlugin {
+  start(o: { key: string; url: string; title: string; entry: string /* JSON PendingDownload */ }): Promise<void>;
+  status(o: { key: string }): Promise<{
+    state: 'running' | 'done' | 'failed' | 'unknown';
+    fraction?: number;
+    filePath?: string;
+    mimeType?: string;
+    size?: number;
+  }>;
+  finished(): Promise<{ downloads: { key: string; entry: string; filePath: string; mimeType: string; size: number }[] }>;
+  forget(o: { key: string }): Promise<void>;
+  remove(o: { key: string }): Promise<void>;
+  removeByPrefix(o: { prefix: string }): Promise<void>;
+}
+
+export const NativeDownloads = registerPlugin<NativeDownloadsPlugin>('NativeDownloads');
+
 /** True inside the Capacitor Android app, false in the browser. */
 export const isNative = (): boolean => Capacitor.isNativePlatform();
