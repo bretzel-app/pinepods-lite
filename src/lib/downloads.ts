@@ -1,6 +1,6 @@
 import type { Account, Episode } from './types';
 import { getDownload, listDownloads } from './db';
-import { getDownloadBackend } from './downloadBackend';
+import { DownloadFetchError, getDownloadBackend } from './downloadBackend';
 import { getEpisodeMetadata, requestServerDownload, serverStreamUrl } from './api';
 
 /**
@@ -107,7 +107,9 @@ export async function downloadEpisode(account: Account, episode: Episode): Promi
     let stored = true;
     try {
       await backend.fetchAndStore(episode.episodeurl, pending, progressFor('fetching'));
-    } catch {
+    } catch (e) {
+      // Only fetch failures fall back; storage errors (e.g. quota) propagate.
+      if (!(e instanceof DownloadFetchError)) throw e;
       stored = false;
     }
 

@@ -9,6 +9,20 @@ import { deleteDownload, putDownload } from './db';
  */
 export type PendingDownload = Pick<DownloadEntry, 'key' | 'accountId' | 'episode'>;
 
+/**
+ * Thrown by a backend when getting the bytes failed (network, HTTP status,
+ * broken transfer). Storage errors are NOT wrapped: they propagate as-is, so
+ * downloadEpisode only falls back to the server strategy for fetch failures.
+ */
+export class DownloadFetchError extends Error {
+  readonly cause?: unknown;
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = 'DownloadFetchError';
+    this.cause = cause;
+  }
+}
+
 export interface DownloadBackend {
   /** Fetch `url`, persist it, resolve to the stored entry. `fraction` is undefined when the size is unknown. */
   fetchAndStore(
@@ -47,7 +61,12 @@ async function fetchWithProgress(url: string, onProgress: (fraction?: number) =>
 
 export const webDownloadBackend: DownloadBackend = {
   async fetchAndStore(url, pending, onProgress) {
-    const blob = await fetchWithProgress(url, onProgress);
+    let blob: Blob;
+    try {
+      blob = await fetchWithProgress(url, onProgress);
+    } catch (e) {
+      throw new DownloadFetchError(e instanceof Error ? e.message : String(e), e);
+    }
     const entry: DownloadEntry = {
       key: pending.key,
       accountId: pending.accountId,
