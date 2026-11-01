@@ -12,6 +12,7 @@ import type { Account, Episode } from '../lib/types';
 import { cacheGet, cacheSet, listDownloads, listLocalPositions } from '../lib/db';
 import { getAllPodcastEpisodes } from '../lib/api';
 import { markCompleted } from '../lib/episodeActions';
+import { subscribeDownloads } from '../lib/downloads';
 import { useAccounts } from '../lib/accounts';
 import { buildPlaybackItems, decideStartup, playlistWindow } from './resume';
 import { applyReports } from './reports';
@@ -385,6 +386,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [active, engine, initEngine, loadEpisode, onState]);
 
+  // The list the engine's playlist is a window of, under the playback
+  // account; null until the current episode's neighbours are known.
+  const playlistRef = useRef<{ account: Account; list: Episode[] } | null>(null);
+  const sendSeqRef = useRef(0);
+  /** (Re)send the engine a window of that list around the current episode,
+   * with sources and resume points as they are now. */
+  const sendPlaylist = useCallback(async () => {
+    const target = playlistRef.current;
+    const ep = episodeRef.current;
+    if (!target || !ep) return;
+    const seq = ++sendSeqRef.current;
+    const { items } = await playlistItems(target.account, target.list, ep);
+    // Superseded by a newer send, or by another episode or list, meanwhile.
+    if (seq === sendSeqRef.current && playlistRef.current === target) engine.updatePlaylist(items);
+  }, [engine]);
+
   // Find the current episode's neighbours: in the list it was played from
   // when there is one, else in its podcast by publication date, so "next"
   // continues a serialized story. For the latter, prefer the list cached by
@@ -396,20 +413,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     const account = playbackAccountRef.current;
-    const sendPlaylist = async (list: Episode[]) => {
-      const ep = episodeRef.current;
-      if (!account || !ep) return;
-      const { items } = await playlistItems(account, list, ep);
-      if (!cancelled) engine.updatePlaylist(items);
+    const send = (list: Episode[]) => {
+      if (!account) return;
+      playlistRef.current = { account, list };
+      void sendPlaylist();
     };
     const idx = queue ? queue.episodes.findIndex((e) => e.episodeid === currentId) : -1;
     if (queue && idx >= 0) {
       setPreviousEpisode(queue.episodes[idx - 1] ?? null);
       setNextEpisode(queue.episodes[idx + 1] ?? null);
       setUpNextSource(queue.source);
-      void sendPlaylist(queue.episodes);
+      send(queue.episodes);
       return () => {
         cancelled = true;
+        playlistRef.current = null;
       };
     }
     setPreviousEpisode(null);
@@ -430,7 +447,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (!cancelled) {
         setPreviousEpisode(list[idx - 1] ?? null);
         setNextEpisode(list[idx + 1] ?? null);
-        void sendPlaylist(list);
+        send(list);
       }
       return true;
     };
@@ -446,8 +463,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     })();
     return () => {
       cancelled = true;
+      playlistRef.current = null;
     };
-  }, [currentId, currentPodcastId, queue, engine]);
+  }, [currentId, currentPodcastId, queue, sendPlaylist]);
+
+  // A download finished or was removed: rebuild the queued items' sources
+  // (and resume points), so auto-advance and lock-screen next play what is
+  // on the device now.
+  useEffect(() => {
+    const unsubscribe = subscribeDownloads(() => void sendPlaylist());
+    return () => {
+      unsubscribe();
+    };
+  }, [sendPlaylist]);
 
   const playPrevious = useCallback(() => {
     if (previousEpisode) void play(previousEpisode, undefined, queueRef.current ?? undefined);

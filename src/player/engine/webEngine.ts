@@ -66,17 +66,21 @@ export class WebEngine implements PlayerEngine {
    * With autoplay=false this only loads (used to restore the last-played
    * episode on app start, so one tap on Play resumes). */
   async load(items: PlaybackItem[], index: number, autoplay: boolean): Promise<void> {
-    const item = items[index];
+    let item = items[index];
     if (!item) return;
     const token = ++this.loadToken;
 
-    let src = item.source.kind === 'stream' ? item.source.url : '';
     let blob: Blob | undefined;
     if (item.source.kind === 'download') {
       blob = await this.loadBlob(item.accountId, item.episode.episodeid);
       if (token !== this.loadToken) return;
-      // The entry outlived its audio: play the enclosure instead.
-      if (!blob) src = item.episode.episodeurl;
+      // Removed since the playlist was built: stream the enclosure instead,
+      // and say so, so the UI doesn't claim an offline copy.
+      if (!blob) {
+        const streamed: PlaybackItem = { ...item, source: { kind: 'stream', url: item.episode.episodeurl } };
+        items = items.map((it, i) => (i === index ? streamed : it));
+        item = streamed;
+      }
     }
 
     const audio = this.audio;
@@ -92,9 +96,10 @@ export class WebEngine implements PlayerEngine {
     }
     if (blob) {
       this.blobUrl = URL.createObjectURL(blob);
-      src = this.blobUrl;
+      audio.src = this.blobUrl;
+    } else {
+      audio.src = item.source.kind === 'stream' ? item.source.url : item.episode.episodeurl;
     }
-    audio.src = src;
     // Loading resets the rate to the default one.
     audio.playbackRate = this.rate;
     // Applied on loadedmetadata; setting currentTime too early is ignored.
@@ -130,10 +135,16 @@ export class WebEngine implements PlayerEngine {
   }
 
   async play(): Promise<void> {
-    if (!this.current()) return;
-    // A source that failed to load (e.g. restored while offline) is loaded
-    // again rather than left dead.
-    if (this.audio.error) return this.load(this.items, this.index, true);
+    const item = this.current();
+    if (!item) return;
+    // A source that failed (e.g. restored while offline, or the network
+    // dropped mid-episode) is loaded again rather than left dead, from where
+    // it got to or was last sought to, not from where it was first cued.
+    if (this.audio.error) {
+      const startAt = this.pendingSeek ?? (this.audio.currentTime || item.startAt);
+      const items = this.items.map((it, i) => (i === this.index ? { ...it, startAt } : it));
+      return this.load(items, this.index, true);
+    }
     await this.audio.play().catch(() => {});
   }
 
@@ -143,7 +154,9 @@ export class WebEngine implements PlayerEngine {
 
   seek(seconds: number): void {
     this.audio.currentTime = seconds;
-    if (this.pendingSeek != null) this.pendingSeek = seconds;
+    // Before metadata, or on a failed source, the element can't seek yet:
+    // keep the target for when it (re)loads.
+    if (this.pendingSeek != null || this.audio.error) this.pendingSeek = seconds;
     this.emitState();
   }
 
