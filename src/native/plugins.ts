@@ -55,6 +55,7 @@ export const NativePlayer = registerPlugin<NativePlayerPlugin>('NativePlayer');
 
 /** Android DownloadManager downloads (NativeDownloadsPlugin.kt). */
 export interface NativeDownloadsPlugin {
+  /** Enqueues a download; follows the key's job instead when it is still running (or done, not yet picked up). */
   start(o: { key: string; url: string; title: string; entry: string /* JSON PendingDownload */ }): Promise<void>;
   status(o: { key: string }): Promise<{
     state: 'running' | 'done' | 'failed' | 'unknown';
@@ -64,6 +65,8 @@ export interface NativeDownloadsPlugin {
     size?: number;
   }>;
   finished(): Promise<{ downloads: { key: string; entry: string; filePath: string; mimeType: string; size: number }[] }>;
+  /** Tracked downloads the manager is still working on. */
+  running(): Promise<{ downloads: { key: string; entry: string /* JSON PendingDownload */ }[] }>;
   forget(o: { key: string }): Promise<void>;
   remove(o: { key: string }): Promise<void>;
   removeByPrefix(o: { prefix: string }): Promise<void>;

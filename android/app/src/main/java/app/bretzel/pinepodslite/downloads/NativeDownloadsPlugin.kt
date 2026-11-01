@@ -15,10 +15,11 @@ import java.io.File
 /**
  * Episode downloads through the system DownloadManager (NativeDownloadsPlugin in
  * src/native/plugins.ts). The manager keeps going when the app is closed; the
- * web side polls [status] while it runs and calls [finished] on startup to pick
- * up downloads that completed in the meantime. SharedPreferences "downloads"
- * maps key -> { downloadId, entry } until the web side has stored the metadata
- * and calls [forget].
+ * web side polls [status] while it runs, calls [finished] on startup to pick
+ * up downloads that completed in the meantime, and [running] to follow again
+ * the ones still going. SharedPreferences "downloads" maps key ->
+ * { downloadId, entry } until the web side has stored the metadata and calls
+ * [forget].
  */
 @CapacitorPlugin(name = "NativeDownloads")
 class NativeDownloadsPlugin : Plugin() {
@@ -32,7 +33,9 @@ class NativeDownloadsPlugin : Plugin() {
         return File(dir, key.replace(':', '_'))
     }
 
-    private fun tracked(key: String): JSONObject? = prefs.getString(key, null)?.let { JSONObject(it) }
+    /** The key's mapping; null when there is none or it is unreadable. */
+    private fun tracked(key: String): JSONObject? =
+        runCatching { prefs.getString(key, null)?.let { JSONObject(it) } }.getOrNull()
 
     private class Snapshot(val state: String, val fraction: Double?, val mimeType: String?)
 
@@ -65,6 +68,19 @@ class NativeDownloadsPlugin : Plugin() {
         val title = call.getString("title") ?: ""
         val entry = call.getString("entry") ?: return call.reject("entry required")
         try {
+            tracked(key)?.let { earlier ->
+                val id = earlier.optLong("downloadId", -1L)
+                val s = query(id)
+                // Still downloading (e.g. started before the app restarted), or
+                // done but not picked up yet: the web side follows that job.
+                // Starting over would delete the file it is writing.
+                if (s.state == "running" || (s.state == "done" && file(key).exists())) {
+                    call.resolve()
+                    return
+                }
+                // Failed or gone: drop its row before starting over.
+                runCatching { manager.remove(id) }
+            }
             val target = file(key)
             // The manager would otherwise pick a new name when the file exists.
             if (target.exists()) target.delete()
@@ -146,6 +162,23 @@ class NativeDownloadsPlugin : Plugin() {
             call.resolve(JSObject().put("downloads", list))
         } catch (e: Exception) {
             call.reject(e.message ?: "finished failed")
+        }
+    }
+
+    /** Tracked downloads the manager is still working on, for the web side to
+     * follow again (after a restart, nothing polls them). Prunes nothing. */
+    @PluginMethod
+    fun running(call: PluginCall) {
+        try {
+            val list = JSArray()
+            for (key in prefs.all.keys.toList()) {
+                val t = tracked(key) ?: continue
+                if (query(t.getLong("downloadId")).state != "running") continue
+                list.put(JSObject().put("key", key).put("entry", t.getString("entry")))
+            }
+            call.resolve(JSObject().put("downloads", list))
+        } catch (e: Exception) {
+            call.reject(e.message ?: "running failed")
         }
     }
 

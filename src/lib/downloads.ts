@@ -1,6 +1,12 @@
 import type { Account, Episode } from './types';
 import { getDownload, listDownloads } from './db';
-import { DownloadCancelledError, DownloadFetchError, getDownloadBackend } from './downloadBackend';
+import {
+  DownloadCancelledError,
+  DownloadFetchError,
+  getDownloadBackend,
+  type DownloadBackend,
+  type PendingDownload,
+} from './downloadBackend';
 import { getEpisodeMetadata, requestServerDownload, serverStreamUrl } from './api';
 
 /**
@@ -84,7 +90,35 @@ function releaseDownloadSlot() {
 }
 
 /** Download an episode's audio into IndexedDB. Resolves when playable offline. */
-export async function downloadEpisode(account: Account, episode: Episode): Promise<void> {
+export function downloadEpisode(account: Account, episode: Episode): Promise<void> {
+  return runDownload(account, episode, (backend, pending, onProgress) =>
+    backend.fetchAndStore(episode.episodeurl, pending, onProgress),
+  );
+}
+
+/**
+ * Follow native downloads still running without anything polling them —
+ * started before the app was restarted, or whose poller stopped — so their
+ * progress shows and they are stored when done (or fall back to the server
+ * copy if they fail, like a fresh download). Run on launch and on every
+ * return to the foreground; downloads already followed are left alone.
+ */
+export async function resumeDownloads(accounts: Account[]): Promise<void> {
+  for (const pending of await getDownloadBackend().running()) {
+    const account = accounts.find((a) => a.id === pending.accountId);
+    if (!account || inFlight.has(pending.episode.episodeid)) continue;
+    void runDownload(account, pending.episode, (backend, p, onProgress) => backend.attach(p, onProgress)).catch(
+      (err) => console.warn('Could not finish a download', err),
+    );
+  }
+}
+
+/** One download, `first` getting the bytes from the podcast CDN (strategy 1). */
+async function runDownload(
+  account: Account,
+  episode: Episode,
+  first: (backend: DownloadBackend, pending: PendingDownload, onProgress: (fraction?: number) => void) => Promise<unknown>,
+): Promise<void> {
   const episodeId = episode.episodeid;
   if (inFlight.has(episodeId)) return;
   if (await getDownload(account.id, episodeId)) return;
@@ -106,7 +140,7 @@ export async function downloadEpisode(account: Account, episode: Episode): Promi
     // Strategy 1: straight from the podcast CDN.
     let stored = true;
     try {
-      await backend.fetchAndStore(episode.episodeurl, pending, progressFor('fetching'));
+      await first(backend, pending, progressFor('fetching'));
     } catch (e) {
       // Only fetch failures fall back; storage errors (e.g. quota) propagate.
       if (e instanceof DownloadCancelledError) return;

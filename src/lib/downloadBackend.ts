@@ -39,10 +39,16 @@ export interface DownloadBackend {
     pending: PendingDownload,
     onProgress: (fraction?: number) => void,
   ): Promise<DownloadEntry>;
+  /** Follow a download already running outside this page (see `running`) until
+   * it is stored, as fetchAndStore does after starting one. */
+  attach(pending: PendingDownload, onProgress: (fraction?: number) => void): Promise<DownloadEntry>;
   remove(accountId: string, episodeId: number): Promise<void>;
   removeAccount(accountId: string): Promise<void>;
   /** Downloads completed while the UI wasn't running; resolves to how many. */
   recoverFinished(): Promise<number>;
+  /** Downloads still running outside this page, e.g. started before the app
+   * was restarted, that nothing may be following. */
+  running(): Promise<PendingDownload[]>;
 }
 
 async function fetchWithProgress(url: string, onProgress: (fraction?: number) => void): Promise<Blob> {
@@ -87,53 +93,67 @@ export const webDownloadBackend: DownloadBackend = {
     await putDownload(entry, blob);
     return entry;
   },
+  // Browser downloads live and die with the page: none run outside it.
+  async attach() {
+    throw new DownloadCancelledError();
+  },
   remove: (accountId, episodeId) => deleteDownload(accountId, episodeId),
   // db.removeAccount already sweeps the blobs.
   async removeAccount() {},
   async recoverFinished() {
     return 0;
   },
+  async running() {
+    return [];
+  },
 };
 
 const POLL_MS = 500;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** Poll the native download for `pending` until it ends; store it when done. */
+async function followNative(pending: PendingDownload, onProgress: (fraction?: number) => void): Promise<DownloadEntry> {
+  for (;;) {
+    await sleep(POLL_MS);
+    const s = await NativeDownloads.status({ key: pending.key });
+    if (s.state === 'running') {
+      onProgress(s.fraction);
+      continue;
+    }
+    if (s.state === 'done') {
+      const entry: DownloadEntry = {
+        ...pending,
+        filePath: s.filePath,
+        mimeType: s.mimeType || 'audio/mpeg',
+        size: s.size ?? 0,
+        downloadedAt: Date.now(),
+      };
+      await putDownloadEntry(entry);
+      await NativeDownloads.forget({ key: pending.key });
+      return entry;
+    }
+    await NativeDownloads.forget({ key: pending.key });
+    // The key disappeared (removed in the app or cancelled in the system
+    // notification): a user cancel, so no server fallback.
+    if (s.state === 'unknown') throw new DownloadCancelledError();
+    // failed: let downloadEpisode fall back to the server strategy.
+    throw new DownloadFetchError('Download failed');
+  }
+}
+
 /** Android: DownloadManager writes real files; IndexedDB keeps only the metadata. */
 export const nativeDownloadBackend: DownloadBackend = {
   async fetchAndStore(url, pending, onProgress) {
+    // Natively, a key whose job is still running is followed, not restarted.
     await NativeDownloads.start({
       key: pending.key,
       url,
       title: pending.episode.episodetitle,
       entry: JSON.stringify(pending),
     });
-    for (;;) {
-      await sleep(POLL_MS);
-      const s = await NativeDownloads.status({ key: pending.key });
-      if (s.state === 'running') {
-        onProgress(s.fraction);
-        continue;
-      }
-      if (s.state === 'done') {
-        const entry: DownloadEntry = {
-          ...pending,
-          filePath: s.filePath,
-          mimeType: s.mimeType || 'audio/mpeg',
-          size: s.size ?? 0,
-          downloadedAt: Date.now(),
-        };
-        await putDownloadEntry(entry);
-        await NativeDownloads.forget({ key: pending.key });
-        return entry;
-      }
-      await NativeDownloads.forget({ key: pending.key });
-      // The key disappeared (removed in the app or cancelled in the system
-      // notification): a user cancel, so no server fallback.
-      if (s.state === 'unknown') throw new DownloadCancelledError();
-      // failed: let downloadEpisode fall back to the server strategy.
-      throw new DownloadFetchError('Download failed');
-    }
+    return followNative(pending, onProgress);
   },
+  attach: followNative,
   async remove(accountId, episodeId) {
     await deleteDownload(accountId, episodeId);
     await NativeDownloads.remove({ key: `${accountId}:${episodeId}` });
@@ -168,6 +188,21 @@ export const nativeDownloadBackend: DownloadBackend = {
       }
     }
     return recovered;
+  },
+  async running() {
+    const { downloads } = await NativeDownloads.running();
+    return downloads.flatMap((d) => {
+      try {
+        const p = JSON.parse(d.entry) as Partial<PendingDownload> | null;
+        if (typeof p?.accountId === 'string' && typeof p.episode?.episodeid === 'number') {
+          return [{ key: d.key, accountId: p.accountId, episode: p.episode }];
+        }
+      } catch {
+        // fall through
+      }
+      // Unreadable: left alone; once it finishes, recoverFinished drops it.
+      return [];
+    });
   },
 };
 

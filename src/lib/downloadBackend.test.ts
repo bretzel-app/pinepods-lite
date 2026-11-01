@@ -11,6 +11,7 @@ const plugin = vi.hoisted(() => ({
   start: vi.fn(async () => {}),
   status: vi.fn(),
   finished: vi.fn(),
+  running: vi.fn(),
   forget: vi.fn(async () => {}),
   remove: vi.fn(async () => {}),
   removeByPrefix: vi.fn(async () => {}),
@@ -145,5 +146,43 @@ describe('nativeDownloadBackend', () => {
     expect(await nativeDownloadBackend.recoverFinished()).toBe(1);
     expect(plugin.forget).toHaveBeenCalledTimes(1);
     expect(plugin.forget).toHaveBeenCalledWith({ key: 'a:2' });
+  });
+
+  it('attach follows a running download without starting another one', async () => {
+    vi.useFakeTimers();
+    plugin.status
+      .mockResolvedValueOnce({ state: 'running', fraction: 0.25 })
+      .mockResolvedValueOnce({ state: 'done', filePath: '/f/a_7', mimeType: 'audio/mpeg', size: 99 });
+    const onProgress = vi.fn();
+    const p = nativeDownloadBackend.attach(pending, onProgress);
+    await vi.advanceTimersByTimeAsync(1500);
+    const entry = await p;
+    expect(plugin.start).not.toHaveBeenCalled();
+    expect(onProgress).toHaveBeenCalledWith(0.25);
+    expect(entry).toMatchObject({ key: 'a:7', accountId: 'a', filePath: '/f/a_7', size: 99 });
+    expect(putDownloadEntry).toHaveBeenCalledWith(entry);
+    expect(plugin.forget).toHaveBeenCalledWith({ key: 'a:7' });
+  });
+
+  it('running lists the downloads still in progress, skipping unreadable entries', async () => {
+    plugin.running.mockResolvedValue({
+      downloads: [
+        { key: 'a:1', entry: '{nope' },
+        { key: 'a:3', entry: '{"accountId":"a"}' },
+        { key: 'a:2', entry: JSON.stringify({ key: 'a:2', accountId: 'a', episode: { episodeid: 2 } }) },
+      ],
+    });
+    expect(await nativeDownloadBackend.running()).toEqual([
+      { key: 'a:2', accountId: 'a', episode: { episodeid: 2 } },
+    ]);
+    expect(plugin.forget).not.toHaveBeenCalled();
+  });
+});
+
+describe('webDownloadBackend background downloads', () => {
+  it('has none to follow', async () => {
+    expect(await webDownloadBackend.running()).toEqual([]);
+    const pending = { key: 'a:7', accountId: 'a', episode: { episodeid: 7 } as Episode };
+    await expect(webDownloadBackend.attach(pending, vi.fn())).rejects.toBeInstanceOf(DownloadCancelledError);
   });
 });
