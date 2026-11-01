@@ -9,6 +9,7 @@ import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -138,6 +139,8 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var store: PlayerStore
     private lateinit var journal: ReportJournal
     private lateinit var player: ExoPlayer
+    /** What the session drives: [player], with every play press counted. */
+    private lateinit var sessionPlayer: Player
     private lateinit var session: MediaLibrarySession
 
     private var tracked: Tracked? = null
@@ -176,8 +179,23 @@ class PlaybackService : MediaLibraryService() {
             .build()
         player.setPauseAtEndOfMediaItems(!store.autoAdvance)
         player.addListener(playerListener)
+        sessionPlayer = object : ForwardingPlayer(player) {
+            // Every press of play ends here: the app (play, load), and through
+            // the session's handlePlayButtonAction the notification, lock screen,
+            // quick settings, headphones and Bluetooth, and playback resumption.
+            // Auto-advance never calls play(), so it doesn't count.
+            override fun play() {
+                onUserPlay()
+                super.play()
+            }
 
-        val builder = MediaLibrarySession.Builder(this, player, sessionCallback)
+            override fun setPlayWhenReady(playWhenReady: Boolean) {
+                if (playWhenReady) onUserPlay()
+                super.setPlayWhenReady(playWhenReady)
+            }
+        }
+
+        val builder = MediaLibrarySession.Builder(this, sessionPlayer, sessionCallback)
         launchAppIntent()?.let { builder.setSessionActivity(it) }
         session = builder.build()
         instance = this
@@ -207,11 +225,7 @@ class PlaybackService : MediaLibraryService() {
         player.setMediaItems(items.map { it.toMediaItem() }, index, first.startAtMs)
         endedKey = null
         player.prepare()
-        if (autoplay) {
-            // A press of play even when already playing; re-arms a check-in timer.
-            sleepTimer.onUserPlay()
-            player.play()
-        }
+        if (autoplay) sessionPlayer.play() // a press of play, even when already playing
         persistResume()
         emitState()
     }
@@ -235,8 +249,8 @@ class PlaybackService : MediaLibraryService() {
     fun play() {
         if (!ensureCued()) return
         // Prepares again after an error (at the current position) or when only
-        // cued, and restarts an ended item.
-        Util.handlePlayButtonAction(player)
+        // cued, and restarts an ended item. Through sessionPlayer: a press of play.
+        Util.handlePlayButtonAction(sessionPlayer)
     }
 
     fun pause() = player.pause()
@@ -308,10 +322,6 @@ class PlaybackService : MediaLibraryService() {
                 // Auto-advance off: paused at the end of an item, which ended.
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM -> currentTracked()?.let { reportEnded(it) }
                 !playWhenReady -> checkpoint()
-                // A press of play (UI, notification, headphones, resumption). Not a
-                // rebuffer or the end of a call, which only flip isPlaying, and
-                // not auto-advance, which keeps playWhenReady.
-                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST -> sleepTimer.onUserPlay()
             }
         }
 
@@ -335,6 +345,14 @@ class PlaybackService : MediaLibraryService() {
             scheduleTick()
             emitState()
         }
+    }
+
+    /** A press of play re-arms a check-in sleep timer to its full length. Not a
+     * rebuffer or the end of a call, which only flip isPlaying, and not
+     * auto-advance: those never call play() on [sessionPlayer]. */
+    private fun onUserPlay() {
+        sleepTimer.onUserPlay()
+        scheduleTick()
     }
 
     /** Every second while playing or while the sleep timer runs. Player events
@@ -455,20 +473,25 @@ class PlaybackService : MediaLibraryService() {
             session: MediaSession, controller: MediaSession.ControllerInfo,
         ): ListenableFuture<MediaSession.ConnectionResult> {
             val result = MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
-            // The notification (and through it the lock screen and quick settings)
-            // gets back 15 s / forward 30 s around play/pause. Media3 places them in
-            // the back/forward slots by default; previous/next stay available as
-            // commands (headphones, Bluetooth).
+            // The notification (and through it the lock screen and quick settings):
+            // previous/next episode keep the primary back/forward slots (Media3
+            // hides next at the end of the list; previous on the first episode
+            // seeks to 0), and back 15 s / forward 30 s go to the secondary ones.
+            // The notification and the platform session don't have secondary
+            // slots and would drop a button with only those, so they fall back to
+            // the overflow, i.e. custom actions after previous, play and next.
             if (session.isMediaNotificationController(controller)) {
                 result.setMediaButtonPreferences(
                     listOf(
                         CommandButton.Builder(CommandButton.ICON_SKIP_BACK_15)
                             .setPlayerCommand(Player.COMMAND_SEEK_BACK)
                             .setDisplayName("Back 15 seconds")
+                            .setSlots(CommandButton.SLOT_BACK_SECONDARY, CommandButton.SLOT_OVERFLOW)
                             .build(),
                         CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_30)
                             .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
                             .setDisplayName("Forward 30 seconds")
+                            .setSlots(CommandButton.SLOT_FORWARD_SECONDARY, CommandButton.SLOT_OVERFLOW)
                             .build(),
                     )
                 )
