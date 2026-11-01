@@ -108,6 +108,9 @@ Local builds are optional. The JS side is `npm run build:android` (runs `npm run
 `cap sync android`). Compiling the APK locally needs JDK 21 and the Android SDK; CI is the
 normal path.
 
+The launcher icon and splash are generated from the web icons in `public/`. After changing
+those, run `python3 scripts/android-icons.py` (needs Pillow) and commit the result.
+
 ### Installing
 
 1. On the phone, open the repo's [Releases page](https://github.com/bretzel-app/pinepods-lite/releases).
