@@ -171,6 +171,8 @@ class PlaybackService : MediaLibraryService() {
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(speech, /* handleAudioFocus= */ true)
             .setHandleAudioBecomingNoisy(true)
+            // CPU and Wi-Fi locks while playing, so screen-off streaming doesn't stall.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .setSeekBackIncrementMs(15_000)
             .setSeekForwardIncrementMs(30_000)
             // "Previous" always means the previous episode when there is one.
