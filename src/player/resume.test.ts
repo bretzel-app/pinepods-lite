@@ -2,7 +2,14 @@ import { describe, it, expect } from 'vitest';
 import type { Account, DownloadEntry, Episode } from '../lib/types';
 import { serverStreamUrl } from '../lib/api';
 import type { EngineSnapshot, PlaybackItem } from './engine/types';
-import { buildPlaybackItems, decideStartup, playlistWindow, resolveSource, resumePoint } from './resume';
+import {
+  buildPlaybackItems,
+  decideStartup,
+  downloadsSignature,
+  playlistWindow,
+  resolveSource,
+  resumePoint,
+} from './resume';
 
 const acct = { id: 'a1', serverUrl: 'https://pods.example.com', apiKey: 'k', userId: 3 } as Account;
 
@@ -92,4 +99,20 @@ describe('decideStartup', () => {
     expect(decideStartup(snap(null), null, last, [acct])).toEqual({ kind: 'restore', episode: last }));
   it('does nothing without anything to resume', () =>
     expect(decideStartup(snap(null), null, undefined, [acct])).toEqual({ kind: 'none' }));
+});
+
+describe('downloadsSignature', () => {
+  const dl = (id: number, filePath?: string) =>
+    ({ key: `a1:${id}`, accountId: 'a1', episode: ep({ episodeid: id }), filePath, size: id }) as DownloadEntry;
+
+  it('ignores order and fields that do not change the playable source', () =>
+    expect(downloadsSignature([dl(1, '/f/1'), dl(2)])).toBe(
+      downloadsSignature([{ ...dl(2), size: 99, downloadedAt: 5 }, dl(1, '/f/1')]),
+    ));
+  it('changes when a download is added or removed', () => {
+    expect(downloadsSignature([dl(1)])).not.toBe(downloadsSignature([dl(1), dl(2)]));
+    expect(downloadsSignature([dl(1)])).not.toBe(downloadsSignature([]));
+  });
+  it('changes when a file path changes', () =>
+    expect(downloadsSignature([dl(1, '/f/1')])).not.toBe(downloadsSignature([dl(1, '/g/1')])));
 });

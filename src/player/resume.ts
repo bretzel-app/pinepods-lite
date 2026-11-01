@@ -49,6 +49,15 @@ export function buildPlaybackItems(
   }));
 }
 
+/** What of the downloads decides playable sources: which episodes have one,
+ * and where its file is. Progress or other metadata leave it unchanged. */
+export function downloadsSignature(downloads: DownloadEntry[]): string {
+  return downloads
+    .map((d) => `${d.key}=${d.filePath ?? ''}`)
+    .sort()
+    .join('\n');
+}
+
 /** On launch: adopt what the engine is already playing, else restore the last episode. */
 export function decideStartup(
   snap: EngineSnapshot,

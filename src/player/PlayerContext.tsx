@@ -14,7 +14,7 @@ import { getAllPodcastEpisodes } from '../lib/api';
 import { markCompleted } from '../lib/episodeActions';
 import { subscribeDownloads } from '../lib/downloads';
 import { useAccounts } from '../lib/accounts';
-import { buildPlaybackItems, decideStartup, playlistWindow } from './resume';
+import { buildPlaybackItems, decideStartup, downloadsSignature, playlistWindow } from './resume';
 import { applyReports } from './reports';
 import { savePositionLocally, syncEpisodePosition } from './positions';
 import { chronological, type PlayQueue } from '../lib/playQueue';
@@ -69,13 +69,14 @@ const AUTOPLAY_NEXT_KEY = 'pinepods.autoplayNext';
 const PlayerContext = createContext<PlayerState | null>(null);
 
 /** Engine items for `ep` and a window of `list` around it (just `ep` when the
- * list doesn't contain it), with sources and resume points for `account`. */
+ * list doesn't contain it), with sources and resume points for `account`;
+ * `downloads` is the downloadsSignature the sources were resolved from. */
 async function playlistItems(
   account: Account,
   list: Episode[],
   ep: Episode,
   startAt?: number,
-): Promise<{ items: PlaybackItem[]; index: number }> {
+): Promise<{ items: PlaybackItem[]; index: number; downloads: string }> {
   const inList = list.some((e) => e.episodeid === ep.episodeid);
   const { episodes, index } = playlistWindow(inList ? list : [ep], ep.episodeid);
   const [downloads, positions] = await Promise.all([
@@ -87,7 +88,11 @@ async function playlistItems(
     localSeconds: new Map(positions.map((p) => [p.episodeId, p.seconds])),
   };
   const cued = episodes.map((e, i) => (i === index ? ep : e));
-  return { items: buildPlaybackItems(account, cued, index, ctx, startAt), index };
+  return {
+    items: buildPlaybackItems(account, cued, index, ctx, startAt),
+    index,
+    downloads: downloadsSignature(downloads),
+  };
 }
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
@@ -410,6 +415,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // account; null until the current episode's neighbours are known.
   const playlistRef = useRef<{ account: Account; list: Episode[] } | null>(null);
   const sendSeqRef = useRef(0);
+  // The downloads the last sent playlist's sources were resolved from.
+  const sentDownloadsRef = useRef<string | null>(null);
   /** (Re)send the engine a window of that list around the current episode,
    * with sources and resume points as they are now. */
   const sendPlaylist = useCallback(async () => {
@@ -417,9 +424,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const ep = episodeRef.current;
     if (!target || !ep) return;
     const seq = ++sendSeqRef.current;
-    const { items } = await playlistItems(target.account, target.list, ep);
+    const { items, downloads } = await playlistItems(target.account, target.list, ep);
     // Superseded by a newer send, or by another episode or list, meanwhile.
-    if (seq === sendSeqRef.current && playlistRef.current === target) engine.updatePlaylist(items);
+    if (seq === sendSeqRef.current && playlistRef.current === target) {
+      sentDownloadsRef.current = downloads;
+      engine.updatePlaylist(items);
+    }
   }, [engine]);
 
   // Find the current episode's neighbours: in the list it was played from
@@ -489,9 +499,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // A download finished or was removed: rebuild the queued items' sources
   // (and resume points), so auto-advance and lock-screen next play what is
-  // on the device now.
+  // on the device now. Progress ticks change nothing there: no re-send.
   useEffect(() => {
-    const unsubscribe = subscribeDownloads(() => void sendPlaylist());
+    const unsubscribe = subscribeDownloads(() => {
+      const target = playlistRef.current;
+      if (!target) return;
+      void listDownloads(target.account.id).then((downloads) => {
+        if (playlistRef.current !== target) return; // the new list gets its own send
+        if (downloadsSignature(downloads) !== sentDownloadsRef.current) void sendPlaylist();
+      });
+    });
     return () => {
       unsubscribe();
     };

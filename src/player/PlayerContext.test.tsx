@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { Account, Episode } from '../lib/types';
+import type { Account, DownloadEntry, Episode } from '../lib/types';
 import type { PlayQueue } from '../lib/playQueue';
 import type { EngineEvent, EngineSnapshot, PlaybackItem, PlayerEngine } from './engine/types';
 
@@ -20,19 +20,26 @@ const account = { id: 'a' } as Account;
 
 const mocks = vi.hoisted(() => ({
   cacheGet: vi.fn(),
+  listDownloads: vi.fn(),
   getAllPodcastEpisodes: vi.fn(),
+  downloadListeners: new Set<() => void>(),
   engine: null as unknown,
 }));
 
 vi.mock('../lib/db', () => ({
   cacheGet: mocks.cacheGet,
   cacheSet: vi.fn(async () => {}),
-  listDownloads: vi.fn(async () => []),
+  listDownloads: mocks.listDownloads,
   listLocalPositions: vi.fn(async () => []),
 }));
 vi.mock('../lib/api', () => ({ getAllPodcastEpisodes: mocks.getAllPodcastEpisodes }));
 vi.mock('../lib/episodeActions', () => ({ markCompleted: vi.fn(async () => {}) }));
-vi.mock('../lib/downloads', () => ({ subscribeDownloads: () => () => {} }));
+vi.mock('../lib/downloads', () => ({
+  subscribeDownloads: (fn: () => void) => {
+    mocks.downloadListeners.add(fn);
+    return () => mocks.downloadListeners.delete(fn);
+  },
+}));
 vi.mock('../lib/accounts', () => ({
   useAccounts: () => ({ accounts: [account], active: account, ready: true }),
 }));
@@ -148,6 +155,9 @@ async function renderPlayer() {
 }
 
 let root: Root | null = null;
+beforeEach(() => {
+  mocks.listDownloads.mockResolvedValue([]);
+});
 afterEach(() => {
   act(() => root?.unmount());
   root = null;
@@ -204,5 +214,42 @@ describe('PlayerProvider startup', () => {
     expect(player().upNextSource).toBe('Saved');
     expect(player().nextEpisode?.episodeid).toBe(6);
     expect(engine.load).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('PlayerProvider and downloads', () => {
+  it('re-sends the playlist only when the downloaded set changes, not on progress', async () => {
+    const current = ep(2);
+    const { engine } = fakeEngine({
+      key: 'a:2',
+      accountId: 'a',
+      episode: current,
+      source: { kind: 'stream', url: current.episodeurl },
+      startAt: 0,
+    });
+    mocks.engine = engine;
+    const queue: PlayQueue = { source: 'Downloads', episodes: [ep(1), current, ep(3)] };
+    mocks.cacheGet.mockImplementation(async (_account: string, key: string) =>
+      key === 'last-played' ? current : key === 'last-queue' ? queue : undefined,
+    );
+    await renderPlayer();
+    const notify = () => act(async () => mocks.downloadListeners.forEach((fn) => fn()));
+    const sends = () => vi.mocked(engine.updatePlaylist).mock.calls.length;
+    const before = sends();
+    expect(before).toBeGreaterThan(0);
+
+    // Progress ticks of a download in flight: nothing on the device changed.
+    await notify();
+    await notify();
+    expect(sends()).toBe(before);
+
+    // It finished: the next episode now plays from its file.
+    mocks.listDownloads.mockResolvedValue([
+      { key: 'a:3', accountId: 'a', episode: ep(3), filePath: '/f/a_3' } as DownloadEntry,
+    ]);
+    await notify();
+    expect(sends()).toBe(before + 1);
+    const last = vi.mocked(engine.updatePlaylist).mock.lastCall![0];
+    expect(last.find((i) => i.key === 'a:3')?.source).toEqual({ kind: 'download', filePath: '/f/a_3' });
   });
 });
