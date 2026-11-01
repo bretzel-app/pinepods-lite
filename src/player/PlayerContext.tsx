@@ -9,13 +9,16 @@ import {
   type ReactNode,
 } from 'react';
 import type { Account, Episode } from '../lib/types';
-import { cacheGet, cacheSet, getDownloadBlob, getLocalPosition } from '../lib/db';
-import { getAllPodcastEpisodes, serverStreamUrl } from '../lib/api';
+import { cacheGet, cacheSet, listDownloads, listLocalPositions } from '../lib/db';
+import { getAllPodcastEpisodes } from '../lib/api';
 import { markCompleted } from '../lib/episodeActions';
 import { useAccounts } from '../lib/accounts';
-import { resumePoint } from './resume';
+import { buildPlaybackItems, decideStartup, playlistWindow } from './resume';
+import { applyReports } from './reports';
 import { savePositionLocally, syncEpisodePosition } from './positions';
 import { chronological, type PlayQueue } from '../lib/playQueue';
+import { createEngine } from './engine';
+import type { EngineSnapshot, PlaybackItem } from './engine/types';
 
 const SYNC_INTERVAL_MS = 15_000;
 const LAST_PLAYED_KEY = 'last-played';
@@ -64,10 +67,31 @@ const AUTOPLAY_NEXT_KEY = 'pinepods.autoplayNext';
 
 const PlayerContext = createContext<PlayerState | null>(null);
 
+/** Engine items for `ep` and a window of `list` around it (just `ep` when the
+ * list doesn't contain it), with sources and resume points for `account`. */
+async function playlistItems(
+  account: Account,
+  list: Episode[],
+  ep: Episode,
+  startAt?: number,
+): Promise<{ items: PlaybackItem[]; index: number }> {
+  const inList = list.some((e) => e.episodeid === ep.episodeid);
+  const { episodes, index } = playlistWindow(inList ? list : [ep], ep.episodeid);
+  const [downloads, positions] = await Promise.all([
+    listDownloads(account.id),
+    listLocalPositions(account.id),
+  ]);
+  const ctx = {
+    downloads: new Map(downloads.map((d) => [d.episode.episodeid, d])),
+    localSeconds: new Map(positions.map((p) => [p.episodeId, p.seconds])),
+  };
+  const cued = episodes.map((e, i) => (i === index ? ep : e));
+  return { items: buildPlaybackItems(account, cued, index, ctx, startAt), index };
+}
+
 export function PlayerProvider({ children }: { children: ReactNode }) {
-  const { active } = useAccounts();
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const blobUrlRef = useRef<string | null>(null);
+  const { accounts, active, ready } = useAccounts();
+  const [engine] = useState(createEngine);
   // The account an episode was started under; position syncs must go to that
   // account even if the user switches accounts mid-playback.
   const playbackAccountRef = useRef<Account | null>(null);
@@ -77,7 +101,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0);
   const [rate, setRateState] = useState(1);
   const [offlineSource, setOfflineSource] = useState(false);
-  const [sleepUntil, setSleepUntil] = useState<number | null>(null);
   const [sleepRemaining, setSleepRemaining] = useState<number | null>(null);
   const [sleepMinutes, setSleepMinutes] = useState<number | null>(null);
   const [sleepRepeat, setSleepRepeatState] = useState<boolean>(
@@ -88,186 +111,218 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [autoplayNext, setAutoplayNextState] = useState<boolean>(
     () => localStorage.getItem(AUTOPLAY_NEXT_KEY) === '1',
   );
-  const autoplayNextRef = useRef(autoplayNext);
-  autoplayNextRef.current = autoplayNext;
   const [queue, setQueue] = useState<PlayQueue | null>(null);
   const queueRef = useRef<PlayQueue | null>(null);
   queueRef.current = queue;
   const [upNextSource, setUpNextSource] = useState<string | null>(null);
-  const nextEpisodeRef = useRef<Episode | null>(null);
-  nextEpisodeRef.current = nextEpisode;
-  // Set while auto-advancing so the play it causes isn't taken for a press.
-  const autoAdvancingRef = useRef(false);
-  const playRef = useRef<(ep: Episode, startAt?: number, queue?: PlayQueue) => Promise<void>>();
-  const sleepMinutesRef = useRef<number | null>(null);
-  const sleepRepeatRef = useRef(sleepRepeat);
-  sleepRepeatRef.current = sleepRepeat;
+  const accountsRef = useRef(accounts);
+  accountsRef.current = accounts;
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
 
-  if (!audioRef.current && typeof Audio !== 'undefined') {
-    audioRef.current = new Audio();
-    audioRef.current.preload = 'metadata';
-  }
-
+  // The episode on screen and its engine key. Set together with the state,
+  // not on render, so engine events right after a switch already see it.
   const episodeRef = useRef<Episode | null>(null);
-  episodeRef.current = episode;
+  const keyRef = useRef<string | null>(null);
+  // Last known playback of the on-screen episode, to flush it on a switch.
+  const lastRef = useRef({ playing: false, position: 0, duration: 0 });
 
-  const persistPosition = useCallback(async (seconds: number, markSynced: boolean) => {
-    const account = playbackAccountRef.current;
-    const ep = episodeRef.current;
-    if (!account || !ep || seconds <= 0) return;
-    await savePositionLocally(account, ep, seconds, audioRef.current?.duration || ep.episodeduration, markSynced);
+  const showEpisode = useCallback((ep: Episode) => {
+    episodeRef.current = ep;
+    setEpisode(ep);
   }, []);
 
-  const syncToServer = useCallback(async (seconds: number) => {
-    const account = playbackAccountRef.current;
-    const ep = episodeRef.current;
-    if (!account || !ep) return;
-    await syncEpisodePosition(account, ep, seconds, audioRef.current?.duration || ep.episodeduration);
-  }, []);
+  /** An engine item's account: its own, even if removed while it plays. */
+  const accountFor = useCallback(
+    (accountId: string): Account | null =>
+      accountsRef.current.find((a) => a.id === accountId) ??
+      (playbackAccountRef.current?.id === accountId ? playbackAccountRef.current : null),
+    [],
+  );
 
-  // Wire up the audio element once.
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const onTime = () => setPosition(audio.currentTime);
-    const onDuration = () => setDuration(audio.duration || 0);
-    const onPlay = () => setPlaying(true);
-    const onPause = () => {
-      setPlaying(false);
-      void syncToServer(audio.currentTime);
-    };
-    const onEnded = () => {
-      setPlaying(false);
-      void syncToServer(audio.duration || audio.currentTime);
-      // Playback reached the end: mark completed on the server and drop the
-      // local offline copy — it's no longer needed on the device.
-      const account = playbackAccountRef.current;
-      const ep = episodeRef.current;
-      if (account && ep && !ep.completed && ep.episodeid > 0) {
-        setEpisode({ ...ep, completed: true });
-        void markCompleted(account, ep);
+  /** Make the engine's current item the on-screen episode. */
+  const adopt = useCallback(
+    (item: PlaybackItem, account: Account) => {
+      keyRef.current = item.key;
+      playbackAccountRef.current = account;
+      showEpisode(item.episode);
+      setOfflineSource(item.source.kind === 'download');
+      // Remember for next launch so one tap resumes where you left off.
+      void cacheSet(account.id, LAST_PLAYED_KEY, item.episode);
+    },
+    [showEpisode],
+  );
+
+  const onState = useCallback(
+    (snap: EngineSnapshot) => {
+      const last = lastRef.current;
+      let switched = false;
+      if (snap.currentKey != null && snap.currentKey !== keyRef.current) {
+        const item = engine.current();
+        const account = item?.key === snap.currentKey ? accountFor(item.accountId) : null;
+        if (item && account) {
+          // Flush the outgoing episode's position before switching.
+          const outAccount = playbackAccountRef.current;
+          const outEp = episodeRef.current;
+          if (outAccount && outEp) {
+            void syncEpisodePosition(outAccount, outEp, last.position, last.duration);
+          }
+          adopt(item, account);
+          switched = true;
+        }
       }
-      const next = nextEpisodeRef.current;
-      if (autoplayNextRef.current && next && playRef.current) {
-        autoAdvancingRef.current = true;
-        void playRef.current(next, undefined, queueRef.current ?? undefined).finally(() => {
-          autoAdvancingRef.current = false;
+      if (!switched && last.playing && !snap.playing) {
+        const account = playbackAccountRef.current;
+        const ep = episodeRef.current;
+        if (account && ep) void syncEpisodePosition(account, ep, snap.position, snap.duration);
+      }
+      if (snap.currentKey === keyRef.current) {
+        lastRef.current = { playing: snap.playing, position: snap.position, duration: snap.duration };
+      }
+      setPlaying(snap.playing);
+      setPosition(snap.position);
+      setDuration(snap.duration);
+      setRateState(snap.rate);
+      setSleepRemaining(snap.sleepRemaining);
+      setSleepMinutes(snap.sleepMinutes);
+    },
+    [engine, accountFor, adopt],
+  );
+
+  // Playback reached the end: mark completed on the server and drop the
+  // local offline copy — it's no longer needed on the device.
+  const completeEpisode = useCallback(
+    async (account: Account, ep: Episode) => {
+      const shown = episodeRef.current;
+      if (shown && playbackAccountRef.current?.id === account.id && shown.episodeid === ep.episodeid) {
+        // Already marked when it finished before; once is enough.
+        if (shown.completed) return;
+        showEpisode({ ...shown, completed: true });
+      }
+      await markCompleted(account, ep);
+    },
+    [showEpisode],
+  );
+
+  // Apply what the engine reported (episodes played to the end), one drain at
+  // a time; a report that fails stays unacked and comes back next drain.
+  const drainingRef = useRef(false);
+  const drainAgainRef = useRef(false);
+  const drainReports = useCallback(async () => {
+    // Before the accounts are loaded every report would look orphaned.
+    if (!readyRef.current) return;
+    if (drainingRef.current) {
+      drainAgainRef.current = true;
+      return;
+    }
+    drainingRef.current = true;
+    try {
+      do {
+        drainAgainRef.current = false;
+        const reports = await engine.readReports();
+        if (!reports.length) continue;
+        const through = await applyReports(reports, {
+          accounts: accountsRef.current,
+          syncPosition: syncEpisodePosition,
+          markCompleted: completeEpisode,
         });
-      }
-    };
-    audio.addEventListener('timeupdate', onTime);
-    audio.addEventListener('durationchange', onDuration);
-    audio.addEventListener('play', onPlay);
-    audio.addEventListener('pause', onPause);
-    audio.addEventListener('ended', onEnded);
-    return () => {
-      audio.removeEventListener('timeupdate', onTime);
-      audio.removeEventListener('durationchange', onDuration);
-      audio.removeEventListener('play', onPlay);
-      audio.removeEventListener('pause', onPause);
-      audio.removeEventListener('ended', onEnded);
-    };
-  }, [syncToServer]);
+        if (through > 0) await engine.ackReports(through);
+      } while (drainAgainRef.current);
+    } catch (err) {
+      console.warn('Could not apply playback reports', err);
+    } finally {
+      drainingRef.current = false;
+    }
+  }, [engine, completeEpisode]);
+
+  useEffect(
+    () =>
+      engine.subscribe((e) => {
+        if (e.type === 'reports') void drainReports();
+        else onState(e.snapshot);
+      }),
+    [engine, onState, drainReports],
+  );
+
+  const initRef = useRef<Promise<EngineSnapshot> | null>(null);
+  const initEngine = useCallback(() => (initRef.current ??= engine.init()), [engine]);
+  useEffect(() => {
+    void initEngine();
+  }, [initEngine]);
+
+  // Reports recorded before the accounts were known are applied once they are.
+  useEffect(() => {
+    if (ready) void drainReports();
+  }, [ready, drainReports]);
+
+  useEffect(() => {
+    engine.setAutoAdvance(autoplayNext);
+  }, [engine, autoplayNext]);
+
+  useEffect(() => {
+    engine.setSleepRepeat(sleepRepeat);
+  }, [engine, sleepRepeat]);
+
+  /** Save where the engine's current item is: locally, or also to the server. */
+  const savePlayback = useCallback(
+    (toServer: boolean) => {
+      const item = engine.current();
+      const account = item && accountFor(item.accountId);
+      if (!item || !account) return;
+      const { position: seconds, duration: total } = engine.snapshot();
+      if (toServer) void syncEpisodePosition(account, item.episode, seconds, total);
+      else if (seconds > 0) void savePositionLocally(account, item.episode, seconds, total, false);
+    },
+    [engine, accountFor],
+  );
 
   // Periodic position sync while playing, plus a local save every tick so a
   // crash never loses more than a few seconds.
   useEffect(() => {
     if (!playing) return;
-    const local = window.setInterval(() => {
-      const audio = audioRef.current;
-      if (audio) void persistPosition(audio.currentTime, false);
-    }, 3000);
-    const server = window.setInterval(() => {
-      const audio = audioRef.current;
-      if (audio) void syncToServer(audio.currentTime);
-    }, SYNC_INTERVAL_MS);
+    const local = window.setInterval(() => savePlayback(false), 3000);
+    const server = window.setInterval(() => savePlayback(true), SYNC_INTERVAL_MS);
     return () => {
       window.clearInterval(local);
       window.clearInterval(server);
     };
-  }, [playing, persistPosition, syncToServer]);
+  }, [playing, savePlayback]);
 
-  // Flush position when the tab is hidden or closed.
+  // Flush position when the tab is hidden or closed; on return, apply what
+  // the engine reported meanwhile.
   useEffect(() => {
     const onHide = () => {
-      const audio = audioRef.current;
-      if (audio && episodeRef.current && !audio.paused) void syncToServer(audio.currentTime);
+      if (engine.snapshot().playing) savePlayback(true);
     };
-    document.addEventListener('visibilitychange', onHide);
+    const onVisibility = () => {
+      onHide();
+      if (document.visibilityState === 'visible') void drainReports();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', onHide);
     return () => {
-      document.removeEventListener('visibilitychange', onHide);
+      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onHide);
     };
-  }, [syncToServer]);
+  }, [engine, savePlayback, drainReports]);
 
-  /** Point the audio element at an episode and cue it at its resume point.
-   * With autoplay=false this only loads (used to restore the last-played
-   * episode on app start, so one tap on Play resumes). */
+  /** Hand the engine `ep` within its queue (or alone), cued at its resume
+   * point. With autoplay=false this only loads. */
+  const loadSeqRef = useRef(0);
   const loadEpisode = useCallback(
-    async (ep: Episode, account: Account, autoplay: boolean, startAt?: number) => {
-      const audio = audioRef.current;
-      if (!audio) return;
-
-      // Flush the outgoing episode's position before switching.
-      if (episodeRef.current && episodeRef.current.episodeid !== ep.episodeid && audio.currentTime > 0) {
-        void syncToServer(audio.currentTime);
-      }
-
-      playbackAccountRef.current = account;
-      setEpisode(ep);
-      setDuration(ep.episodeduration || 0);
-
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = null;
-      }
-
-      // Source priority: local download → server-side copy → enclosure URL.
-      const blob = await getDownloadBlob(account.id, ep.episodeid);
-      if (blob) {
-        blobUrlRef.current = URL.createObjectURL(blob);
-        audio.src = blobUrlRef.current;
-        setOfflineSource(true);
-      } else if (ep.downloaded) {
-        audio.src = serverStreamUrl(account, ep.episodeid);
-        setOfflineSource(false);
-      } else {
-        audio.src = ep.episodeurl;
-        setOfflineSource(false);
-      }
-
-      const local = startAt != null ? undefined : await getLocalPosition(account.id, ep.episodeid);
-      const resumeAt = resumePoint(ep, local?.seconds, startAt);
-      setPosition(resumeAt);
-
-      audio.playbackRate = rate;
-      if (resumeAt > 3) {
-        // Apply after metadata loads; setting currentTime too early is ignored.
-        const apply = () => {
-          audio.currentTime = resumeAt;
-          audio.removeEventListener('loadedmetadata', apply);
-        };
-        audio.addEventListener('loadedmetadata', apply);
-      }
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: ep.episodetitle,
-          artist: ep.podcastname,
-          artwork: ep.episodeartwork ? [{ src: ep.episodeartwork }] : [],
-        });
-      }
-
-      // Resolves once playback starts (after the 'play' event), or on failure.
-      if (autoplay) await audio.play().catch(() => {});
+    async (account: Account, ep: Episode, fromQueue: PlayQueue | null, autoplay: boolean, startAt?: number) => {
+      const seq = ++loadSeqRef.current;
+      const { items, index } = await playlistItems(account, fromQueue?.episodes ?? [], ep, startAt);
+      // A later play (or a first tap racing the startup restore) wins.
+      if (seq !== loadSeqRef.current) return;
+      await engine.load(items, index, autoplay);
     },
-    [rate, syncToServer],
+    [engine],
   );
 
   const play = useCallback(
     async (ep: Episode, startAt?: number, fromQueue?: PlayQueue) => {
-      const audio = audioRef.current;
-      if (!audio || !active) return;
+      if (!active) return;
 
       // A list replaces the queue; a new episode started from elsewhere
       // (detail page, transcript) drops it. Resuming the current one keeps it.
@@ -280,81 +335,102 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         void cacheSet(active.id, LAST_QUEUE_KEY, nextQueue);
       }
 
-      // Same episode already cued and healthy: just resume (or jump).
-      if (isCurrent && audio.src && !audio.error) {
-        if (startAt != null) {
-          audio.currentTime = startAt;
-          setPosition(startAt);
-        }
-        void audio.play();
+      // Same episode already cued: just resume (or jump). The engine reloads
+      // a source that failed to load.
+      if (isCurrent && engine.current()?.key === keyRef.current) {
+        if (startAt != null) engine.seek(startAt);
+        void engine.play();
         return;
       }
 
-      await loadEpisode(ep, active, true, startAt);
-      // Remember for next launch so one tap resumes where you left off.
-      void cacheSet(active.id, LAST_PLAYED_KEY, ep);
+      await loadEpisode(active, ep, nextQueue, true, startAt);
     },
-    [active, loadEpisode],
+    [active, engine, loadEpisode],
   );
-  playRef.current = play;
 
-  // On app start (or when switching to an account while idle), cue up that
-  // account's last-played episode, paused at its resume point.
+  // On app start (or when switching to an account while idle), adopt what the
+  // engine is already playing, else cue up that account's last-played
+  // episode, paused at its resume point.
   const restoredForRef = useRef<string | null>(null);
   useEffect(() => {
     if (!active || episodeRef.current) return;
     if (restoredForRef.current === active.id) return;
     restoredForRef.current = active.id;
     let cancelled = false;
-    Promise.all([
-      cacheGet<Episode>(active.id, LAST_PLAYED_KEY),
-      cacheGet<PlayQueue | null>(active.id, LAST_QUEUE_KEY),
-    ]).then(([ep, savedQueue]) => {
-      if (cancelled || !ep || episodeRef.current) return;
-      queueRef.current = savedQueue ?? null;
-      setQueue(savedQueue ?? null);
-      void loadEpisode(ep, active, false);
-    });
+    void (async () => {
+      const [, lastPlayed, savedQueue] = await Promise.all([
+        initEngine(),
+        cacheGet<Episode>(active.id, LAST_PLAYED_KEY),
+        cacheGet<PlayQueue | null>(active.id, LAST_QUEUE_KEY),
+      ]);
+      if (cancelled || episodeRef.current) return;
+      const startup = decideStartup(engine.snapshot(), engine.current(), lastPlayed, accountsRef.current);
+      if (startup.kind === 'adopt') {
+        const adoptedQueue =
+          startup.account.id === active.id
+            ? savedQueue
+            : await cacheGet<PlayQueue | null>(startup.account.id, LAST_QUEUE_KEY);
+        if (cancelled || episodeRef.current) return;
+        queueRef.current = adoptedQueue ?? null;
+        setQueue(adoptedQueue ?? null);
+        onState(engine.snapshot());
+      } else if (startup.kind === 'restore') {
+        queueRef.current = savedQueue ?? null;
+        setQueue(savedQueue ?? null);
+        void loadEpisode(active, startup.episode, savedQueue ?? null, false);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [active, loadEpisode]);
+  }, [active, engine, initEngine, loadEpisode, onState]);
 
   // Find the current episode's neighbours: in the list it was played from
   // when there is one, else in its podcast by publication date, so "next"
   // continues a serialized story. For the latter, prefer the list cached by
   // the podcast page (works offline); fetch it once when the page was never
-  // opened.
+  // opened. The engine gets a window of that list for its own previous/next
+  // and auto-advance.
   const currentId = episode?.episodeid;
   const currentPodcastId = episode?.podcastid;
   useEffect(() => {
+    let cancelled = false;
+    const account = playbackAccountRef.current;
+    const sendPlaylist = async (list: Episode[]) => {
+      const ep = episodeRef.current;
+      if (!account || !ep) return;
+      const { items } = await playlistItems(account, list, ep);
+      if (!cancelled) engine.updatePlaylist(items);
+    };
     const idx = queue ? queue.episodes.findIndex((e) => e.episodeid === currentId) : -1;
     if (queue && idx >= 0) {
       setPreviousEpisode(queue.episodes[idx - 1] ?? null);
       setNextEpisode(queue.episodes[idx + 1] ?? null);
       setUpNextSource(queue.source);
-      return;
+      void sendPlaylist(queue.episodes);
+      return () => {
+        cancelled = true;
+      };
     }
     setPreviousEpisode(null);
     setNextEpisode(null);
     setUpNextSource(episodeRef.current?.podcastname || null);
-    const account = playbackAccountRef.current;
     if (!account || currentId == null || currentId < 0 || currentPodcastId == null) return;
-    let cancelled = false;
     const key = `podcast-episodes:${currentPodcastId}`;
     const pick = (fetched: Episode[] | undefined): boolean => {
       if (!fetched?.some((e) => e.episodeid === currentId)) return false;
-      const list = chronological(fetched);
-      const idx = list.findIndex((e) => e.episodeid === currentId);
       const ep = episodeRef.current;
       // Rows from the podcast endpoint can omit the podcast fields.
-      const fill = (e: Episode | undefined) =>
-        e
-          ? { ...e, podcastid: currentPodcastId, podcastname: e.podcastname || ep?.podcastname || '' }
-          : null;
+      const list = chronological(fetched).map((e) => ({
+        ...e,
+        podcastid: currentPodcastId,
+        podcastname: e.podcastname || ep?.podcastname || '',
+      }));
+      const idx = list.findIndex((e) => e.episodeid === currentId);
       if (!cancelled) {
-        setPreviousEpisode(fill(list[idx - 1]));
-        setNextEpisode(fill(list[idx + 1]));
+        setPreviousEpisode(list[idx - 1] ?? null);
+        setNextEpisode(list[idx + 1] ?? null);
+        void sendPlaylist(list);
       }
       return true;
     };
@@ -371,7 +447,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [currentId, currentPodcastId, queue]);
+  }, [currentId, currentPodcastId, queue, engine]);
 
   const playPrevious = useCallback(() => {
     if (previousEpisode) void play(previousEpisode, undefined, queueRef.current ?? undefined);
@@ -386,180 +462,30 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(AUTOPLAY_NEXT_KEY, on ? '1' : '0');
   }, []);
 
-  const setSleepTimer = useCallback((minutes: number | null) => {
-    sleepMinutesRef.current = minutes;
-    setSleepMinutes(minutes);
-    if (minutes == null) {
-      setSleepUntil(null);
-      setSleepRemaining(null);
-    } else {
-      setSleepUntil(Date.now() + minutes * 60_000);
-      setSleepRemaining(minutes * 60);
-    }
-  }, []);
+  const setSleepTimer = useCallback((minutes: number | null) => engine.setSleepTimer(minutes), [engine]);
 
   const setSleepRepeat = useCallback((repeat: boolean) => {
     setSleepRepeatState(repeat);
     localStorage.setItem(SLEEP_REPEAT_KEY, repeat ? '1' : '0');
   }, []);
 
-  // Check-in mode: every press of play re-arms the timer to its full
-  // duration, so falling asleep costs at most one interval.
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const onPlay = () => {
-      // Auto-advance isn't a check-in: the timer keeps counting down.
-      if (autoAdvancingRef.current) return;
-      const minutes = sleepMinutesRef.current;
-      if (sleepRepeatRef.current && minutes != null) {
-        setSleepUntil(Date.now() + minutes * 60_000);
-        setSleepRemaining(minutes * 60);
-      }
-    };
-    audio.addEventListener('play', onPlay);
-    return () => audio.removeEventListener('play', onPlay);
-  }, []);
-
-  // Sleep timer: count down, then fade out over ~5s and pause.
-  useEffect(() => {
-    if (sleepUntil == null) return;
-    const tick = window.setInterval(() => {
-      const remaining = Math.ceil((sleepUntil - Date.now()) / 1000);
-      if (remaining > 0) {
-        setSleepRemaining(remaining);
-        return;
-      }
-      window.clearInterval(tick);
-      setSleepUntil(null);
-      setSleepRemaining(null);
-      // One-shot timers disarm on expiry; check-in timers stay armed and
-      // re-start the countdown on the next play.
-      if (!sleepRepeatRef.current) {
-        sleepMinutesRef.current = null;
-        setSleepMinutes(null);
-      }
-      const audio = audioRef.current;
-      if (!audio || audio.paused) return; // expired while already paused
-      const startVolume = audio.volume;
-      const steps = 25;
-      let step = 0;
-      const fade = window.setInterval(() => {
-        step++;
-        try {
-          // Some platforms (iOS) expose a read-only volume; fading is
-          // best-effort there and we still pause at the end.
-          audio.volume = Math.max(0, startVolume * (1 - step / steps));
-        } catch {
-          /* ignore */
-        }
-        if (step >= steps) {
-          window.clearInterval(fade);
-          audio.pause();
-          try {
-            audio.volume = startVolume;
-          } catch {
-            /* ignore */
-          }
-        }
-      }, 200);
-    }, 1000);
-    return () => window.clearInterval(tick);
-  }, [sleepUntil]);
-
   const toggle = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio || !episodeRef.current) return;
-    if (audio.paused) void audio.play();
-    else audio.pause();
-  }, []);
+    if (!episodeRef.current) return;
+    if (engine.snapshot().playing) engine.pause();
+    else void engine.play();
+  }, [engine]);
 
-  const seek = useCallback((seconds: number) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.currentTime = seconds;
-    setPosition(seconds);
-  }, []);
+  const seek = useCallback((seconds: number) => engine.seek(seconds), [engine]);
 
   const skip = useCallback(
     (delta: number) => {
-      const audio = audioRef.current;
-      if (!audio) return;
-      seek(Math.max(0, Math.min(audio.duration || Infinity, audio.currentTime + delta)));
+      const { position: at, duration: total } = engine.snapshot();
+      engine.seek(Math.max(0, Math.min(total || Infinity, at + delta)));
     },
-    [seek],
+    [engine],
   );
 
-  const setRate = useCallback((r: number) => {
-    setRateState(r);
-    if (audioRef.current) audioRef.current.playbackRate = r;
-  }, []);
-
-  // Media session transport controls (lock screen / hardware keys).
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
-    // Explicit play/pause (not toggle): the notification's idea of the state
-    // can drift from ours after the tab was frozen in the background.
-    navigator.mediaSession.setActionHandler('play', () => void audioRef.current?.play());
-    navigator.mediaSession.setActionHandler('pause', () => audioRef.current?.pause());
-    navigator.mediaSession.setActionHandler('seekbackward', () => skip(-15));
-    navigator.mediaSession.setActionHandler('seekforward', () => skip(30));
-    navigator.mediaSession.setActionHandler('seekto', (details) => {
-      if (details.seekTime != null) seek(details.seekTime);
-    });
-  }, [seek, skip]);
-
-  // Lock-screen previous/next; a null handler hides the button at list ends.
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
-    try {
-      navigator.mediaSession.setActionHandler('previoustrack', previousEpisode ? playPrevious : null);
-      navigator.mediaSession.setActionHandler('nexttrack', nextEpisode ? playNext : null);
-    } catch {
-      // Older browsers reject unknown actions.
-    }
-  }, [previousEpisode, nextEpisode, playPrevious, playNext]);
-
-  // Keep the media session's bookkeeping current. Android uses this to decide
-  // how long a paused session's notification survives in the background, and
-  // it powers the notification's progress bar.
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
-    navigator.mediaSession.playbackState = episode ? (playing ? 'playing' : 'paused') : 'none';
-  }, [playing, episode]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) {
-      return;
-    }
-    const update = () => {
-      if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: audio.duration,
-          position: Math.min(audio.currentTime, audio.duration),
-          playbackRate: audio.playbackRate,
-        });
-      } catch {
-        // Invalid transient values (e.g. mid-load) — skip this update.
-      }
-    };
-    audio.addEventListener('durationchange', update);
-    audio.addEventListener('seeked', update);
-    audio.addEventListener('ratechange', update);
-    audio.addEventListener('play', update);
-    audio.addEventListener('pause', update);
-    const interval = window.setInterval(update, 5000);
-    return () => {
-      audio.removeEventListener('durationchange', update);
-      audio.removeEventListener('seeked', update);
-      audio.removeEventListener('ratechange', update);
-      audio.removeEventListener('play', update);
-      audio.removeEventListener('pause', update);
-      window.clearInterval(interval);
-    };
-  }, []);
+  const setRate = useCallback((r: number) => engine.setRate(r), [engine]);
 
   const value = useMemo(
     () => ({
