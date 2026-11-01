@@ -1,0 +1,208 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import type { Account, Episode } from '../lib/types';
+import type { PlayQueue } from '../lib/playQueue';
+import type { EngineEvent, EngineSnapshot, PlaybackItem, PlayerEngine } from './engine/types';
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Newer Node versions define their own (unconfigured) localStorage global,
+// which shadows jsdom's; the provider only reads two flags from it.
+const store = new Map<string, string>();
+vi.stubGlobal('localStorage', {
+  getItem: (k: string) => store.get(k) ?? null,
+  setItem: (k: string, v: string) => void store.set(k, v),
+});
+
+const account = { id: 'a' } as Account;
+
+const mocks = vi.hoisted(() => ({
+  cacheGet: vi.fn(),
+  getAllPodcastEpisodes: vi.fn(),
+  engine: null as unknown,
+}));
+
+vi.mock('../lib/db', () => ({
+  cacheGet: mocks.cacheGet,
+  cacheSet: vi.fn(async () => {}),
+  listDownloads: vi.fn(async () => []),
+  listLocalPositions: vi.fn(async () => []),
+}));
+vi.mock('../lib/api', () => ({ getAllPodcastEpisodes: mocks.getAllPodcastEpisodes }));
+vi.mock('../lib/episodeActions', () => ({ markCompleted: vi.fn(async () => {}) }));
+vi.mock('../lib/downloads', () => ({ subscribeDownloads: () => () => {} }));
+vi.mock('../lib/accounts', () => ({
+  useAccounts: () => ({ accounts: [account], active: account, ready: true }),
+}));
+vi.mock('./positions', () => ({
+  savePositionLocally: vi.fn(async () => {}),
+  syncEpisodePosition: vi.fn(async () => {}),
+}));
+vi.mock('./engine', () => ({ createEngine: () => mocks.engine }));
+
+import { PlayerProvider, usePlayer } from './PlayerContext';
+
+function ep(id: number): Episode {
+  return {
+    episodeid: id,
+    episodetitle: `Episode ${id}`,
+    podcastid: 1,
+    podcastname: 'Cast',
+    episodepubdate: '',
+    episodedescription: '',
+    episodeartwork: '',
+    episodeurl: `http://cdn/${id}.mp3`,
+    episodeduration: 600,
+    completed: false,
+    saved: false,
+    queued: false,
+    downloaded: false,
+    is_youtube: false,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+/** An engine playing `item` (native playback that outlived the UI), or idle. */
+function fakeEngine(initial: PlaybackItem | null) {
+  const listeners = new Set<(e: EngineEvent) => void>();
+  let item = initial;
+  let snap: EngineSnapshot = {
+    currentKey: item?.key ?? null,
+    playing: item != null,
+    position: 42,
+    duration: 600,
+    rate: 1,
+    sleepRemaining: null,
+    sleepMinutes: null,
+  };
+  const emit = () => {
+    for (const fn of listeners) fn({ type: 'state', snapshot: snap });
+  };
+  const engine: PlayerEngine = {
+    kind: 'native',
+    init: async () => snap,
+    load: vi.fn(async (items: PlaybackItem[], index: number) => {
+      item = items[index];
+      snap = { ...snap, currentKey: item.key, playing: true, position: 0 };
+      emit();
+    }),
+    updatePlaylist: vi.fn(),
+    current: () => item,
+    play: vi.fn(async () => {}),
+    pause: vi.fn(),
+    seek: vi.fn(),
+    setRate: vi.fn(),
+    setAutoAdvance: vi.fn(),
+    setSleepTimer: vi.fn(),
+    setSleepRepeat: vi.fn(),
+    snapshot: () => snap,
+    readReports: async () => [],
+    ackReports: async () => {},
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+  };
+  const tick = (position: number) => {
+    snap = { ...snap, position };
+    emit();
+  };
+  return { engine, tick };
+}
+
+/** cacheGet with the startup reads (last-played, last-queue) held until resolved. */
+function holdStartupReads() {
+  const lastPlayed = deferred<Episode | undefined>();
+  const lastQueue = deferred<PlayQueue | null | undefined>();
+  mocks.cacheGet.mockImplementation(async (_account: string, key: string) => {
+    if (key === 'last-played') return lastPlayed.promise;
+    if (key === 'last-queue') return lastQueue.promise;
+    return undefined;
+  });
+  return { lastPlayed, lastQueue };
+}
+
+/** Renders the provider; the returned getter reads its latest value. */
+async function renderPlayer() {
+  let player: ReturnType<typeof usePlayer> | null = null;
+  function Probe() {
+    player = usePlayer();
+    return null;
+  }
+  await act(async () => {
+    root = createRoot(document.createElement('div'));
+    root.render(
+      <PlayerProvider>
+        <Probe />
+      </PlayerProvider>,
+    );
+  });
+  return () => player!;
+}
+
+let root: Root | null = null;
+afterEach(() => {
+  act(() => root?.unmount());
+  root = null;
+  vi.clearAllMocks();
+});
+
+describe('PlayerProvider startup', () => {
+  it('restores the saved list when engine state arrives before the startup reads', async () => {
+    const current = ep(2);
+    const queue: PlayQueue = { source: 'Downloads', episodes: [ep(1), current, ep(3)] };
+    const { engine, tick } = fakeEngine({
+      key: 'a:2',
+      accountId: 'a',
+      episode: current,
+      source: { kind: 'stream', url: current.episodeurl },
+      startAt: 0,
+    });
+    mocks.engine = engine;
+    mocks.getAllPodcastEpisodes.mockResolvedValue([ep(1), current, ep(3), ep(4)]);
+    const { lastPlayed, lastQueue } = holdStartupReads();
+    const player = await renderPlayer();
+
+    // A 1 Hz state tick lands while the startup cache reads are still pending.
+    await act(async () => tick(43));
+    await act(async () => {
+      lastPlayed.resolve(current);
+      lastQueue.resolve(queue);
+    });
+
+    expect(player().episode?.episodeid).toBe(2);
+    expect(player().upNextSource).toBe('Downloads');
+    expect(player().nextEpisode?.episodeid).toBe(3);
+    expect(mocks.getAllPodcastEpisodes).not.toHaveBeenCalled();
+    const sent = vi.mocked(engine.updatePlaylist).mock.calls.map((c) => c[0].map((i) => i.key));
+    expect(sent.length).toBeGreaterThan(0);
+    for (const keys of sent) expect(keys).toEqual(['a:1', 'a:2', 'a:3']);
+  });
+
+  it('still adopts at once what the user plays before the startup reads finish', async () => {
+    const { engine } = fakeEngine(null);
+    mocks.engine = engine;
+    const { lastPlayed, lastQueue } = holdStartupReads();
+    const player = await renderPlayer();
+
+    const tapped: PlayQueue = { source: 'Saved', episodes: [ep(5), ep(6)] };
+    await act(async () => player().play(ep(5), undefined, tapped));
+    expect(player().episode?.episodeid).toBe(5);
+
+    await act(async () => {
+      lastPlayed.resolve(ep(2));
+      lastQueue.resolve({ source: 'Downloads', episodes: [ep(1), ep(2), ep(3)] });
+    });
+    expect(player().episode?.episodeid).toBe(5);
+    expect(player().upNextSource).toBe('Saved');
+    expect(player().nextEpisode?.episodeid).toBe(6);
+    expect(engine.load).toHaveBeenCalledTimes(1);
+  });
+});

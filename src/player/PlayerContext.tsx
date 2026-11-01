@@ -127,6 +127,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const keyRef = useRef<string | null>(null);
   // Last known playback of the on-screen episode, to flush it on a switch.
   const lastRef = useRef({ playing: false, position: 0, duration: 0 });
+  // Native playback outlives the UI, so engine state can arrive before the
+  // startup effect has read the saved list. Adopting it then would skip that
+  // restore and fall back to podcast order; until the startup decision (or a
+  // play from the user) state only updates what's shown.
+  const startupDecidedRef = useRef(false);
 
   const showEpisode = useCallback((ep: Episode) => {
     episodeRef.current = ep;
@@ -158,7 +163,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     (snap: EngineSnapshot) => {
       const last = lastRef.current;
       let switched = false;
-      if (snap.currentKey != null && snap.currentKey !== keyRef.current) {
+      if (startupDecidedRef.current && snap.currentKey != null && snap.currentKey !== keyRef.current) {
         const item = engine.current();
         const account = item?.key === snap.currentKey ? accountFor(item.accountId) : null;
         if (item && account) {
@@ -324,6 +329,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const play = useCallback(
     async (ep: Episode, startAt?: number, fromQueue?: PlayQueue) => {
       if (!active) return;
+      // The user's choice: adopt what it loads as soon as the engine says so.
+      startupDecidedRef.current = true;
 
       // A list replaces the queue; a new episode started from elsewhere
       // (detail page, transcript) drops it. Resuming the current one keeps it.
@@ -358,31 +365,44 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (restoredForRef.current === active.id) return;
     restoredForRef.current = active.id;
     let cancelled = false;
+    let decided = false;
     void (async () => {
-      const [, lastPlayed, savedQueue] = await Promise.all([
-        initEngine(),
-        cacheGet<Episode>(active.id, LAST_PLAYED_KEY),
-        cacheGet<PlayQueue | null>(active.id, LAST_QUEUE_KEY),
-      ]);
-      if (cancelled || episodeRef.current) return;
-      const startup = decideStartup(engine.snapshot(), engine.current(), lastPlayed, accountsRef.current);
-      if (startup.kind === 'adopt') {
-        const adoptedQueue =
-          startup.account.id === active.id
-            ? savedQueue
-            : await cacheGet<PlayQueue | null>(startup.account.id, LAST_QUEUE_KEY);
+      try {
+        const [, lastPlayed, savedQueue] = await Promise.all([
+          initEngine(),
+          cacheGet<Episode>(active.id, LAST_PLAYED_KEY),
+          cacheGet<PlayQueue | null>(active.id, LAST_QUEUE_KEY),
+        ]);
         if (cancelled || episodeRef.current) return;
-        queueRef.current = adoptedQueue ?? null;
-        setQueue(adoptedQueue ?? null);
-        onState(engine.snapshot());
-      } else if (startup.kind === 'restore') {
-        queueRef.current = savedQueue ?? null;
-        setQueue(savedQueue ?? null);
-        void loadEpisode(active, startup.episode, savedQueue ?? null, false);
+        const startup = decideStartup(engine.snapshot(), engine.current(), lastPlayed, accountsRef.current);
+        if (startup.kind === 'adopt') {
+          const adoptedQueue =
+            startup.account.id === active.id
+              ? savedQueue
+              : await cacheGet<PlayQueue | null>(startup.account.id, LAST_QUEUE_KEY);
+          if (cancelled || episodeRef.current) return;
+          queueRef.current = adoptedQueue ?? null;
+          setQueue(adoptedQueue ?? null);
+        } else if (startup.kind === 'restore') {
+          queueRef.current = savedQueue ?? null;
+          setQueue(savedQueue ?? null);
+          void loadEpisode(active, startup.episode, savedQueue ?? null, false);
+        }
+      } finally {
+        // Also when a read failed: never leave engine state held back.
+        if (!cancelled) {
+          decided = true;
+          startupDecidedRef.current = true;
+          // Adopt what the engine has now; its next state may be a while
+          // (no ticks while paused).
+          onState(engine.snapshot());
+        }
       }
     })();
     return () => {
       cancelled = true;
+      // Interrupted before deciding: let the next run for this account decide.
+      if (!decided && restoredForRef.current === active.id) restoredForRef.current = null;
     };
   }, [active, engine, initEngine, loadEpisode, onState]);
 
