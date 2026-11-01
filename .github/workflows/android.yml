@@ -10,13 +10,19 @@ permissions:
 
 concurrency:
   group: android-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push supersedes a test build, but a main build may be publishing
+  # a release: let it finish (the next one queues).
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          # No git credentials left on disk: nothing here pushes, and the
+          # gh steps below authenticate with GH_TOKEN.
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
@@ -73,7 +79,7 @@ jobs:
           APK="pinepods-lite-0.1.$RUN.apk"
           NOTES=$(git log -1 --format=%B "$SHA")
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            gh release create "android-v0.1.$RUN" "$APK" \
+            gh release create "android-v0.1.$RUN" "$APK" --target "$SHA" \
               --title "PinePods Lite 0.1.$RUN" --notes "$NOTES" --latest
           else
             gh release create "android-test-0.1.$RUN" "$APK" --prerelease --target "$SHA" \
