@@ -349,10 +349,13 @@ a {
   gap: 12px;
   padding: 12px 8px;
   border-bottom: 1px solid var(--border);
-  align-items: flex-start;
+  /* Stretch so .episode-main spans the full row height and the description
+     can fill the space beside the stacked action buttons. */
+  align-items: stretch;
 }
 
 .episode-row .artwork {
+  align-self: flex-start;
   width: 56px;
   height: 56px;
   border-radius: 8px;
@@ -366,6 +369,31 @@ a {
   flex: 1;
   min-width: 0;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+
+.episode-main > * {
+  flex-shrink: 0;
+}
+
+/* Takes the leftover height (zero basis, so it never makes the row taller
+   than one line of it would); EpisodeRow clamps the text to the whole lines
+   that fit. */
+.episode-desc {
+  flex: 1 1 0;
+  min-height: 1.4em;
+  margin-top: 4px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.episode-desc > div {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .episode-title {
@@ -392,6 +420,7 @@ a {
 }
 
 .episode-actions {
+  align-self: flex-start;
   /* Stacked on phones so the title/description column keeps as much width
      as possible; a horizontal strip would eat ~a third of a 360px screen. */
   display: flex;

@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useActiveAccount } from '../lib/accounts';
 import { getRecentEpisodes, getUserHistory } from '../lib/api';
 import { useCached } from '../lib/useCached';
-import { buildContinueListening, isEffectivelyFinished } from '../lib/continueListening';
+import {
+  buildContinueListening,
+  dismissFromContinueListening,
+  isEffectivelyFinished,
+} from '../lib/continueListening';
 import type { Episode } from '../lib/types';
 import EpisodeRow from '../components/EpisodeRow';
 
@@ -26,6 +30,11 @@ export default function Home() {
       cancelled = true;
     };
   }, [account, history.data]);
+
+  const removeFromContinue = (episodeId: number) => {
+    setInProgress((list) => list.filter((e) => e.episodeid !== episodeId));
+    void dismissFromContinueListening(account.id, episodeId);
+  };
 
   // Home is a "what's next" feed: finished episodes have no business here.
   // (Podcast pages keep the All/Unplayed toggle for browsing back-catalog.)
@@ -53,7 +62,12 @@ export default function Home() {
         <section className="continue-listening">
           <h2 style={{ fontSize: 15, margin: '4px 0' }}>Continue listening</h2>
           {inProgress.map((e) => (
-            <EpisodeRow key={`h${e.episodeid}`} episode={e} queue={continueQueue} />
+            <EpisodeRow
+              key={`h${e.episodeid}`}
+              episode={e}
+              queue={continueQueue}
+              onRemoveFromContinue={() => removeFromContinue(e.episodeid)}
+            />
           ))}
         </section>
       )}

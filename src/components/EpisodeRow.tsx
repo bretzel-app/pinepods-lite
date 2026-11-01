@@ -23,6 +23,7 @@ import {
 import { useBackDismiss } from '../lib/useBackDismiss';
 import {
   CheckIcon,
+  CloseIcon,
   DownloadIcon,
   GridIcon,
   MoreIcon,
@@ -40,11 +41,19 @@ interface Props {
   onChanged?: () => void;
   /** The list this row belongs to; previous/next in the player walk it. */
   queue?: PlayQueue;
+  /** Shown only in Continue listening: hides the row from that list. */
+  onRemoveFromContinue?: () => void;
 }
 
 const LONG_PRESS_MS = 500;
 
-export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: Props) {
+export default function EpisodeRow({
+  episode,
+  hidePodcast,
+  onChanged,
+  queue,
+  onRemoveFromContinue,
+}: Props) {
   const account = useActiveAccount();
   const player = usePlayer();
   const navigate = useNavigate();
@@ -56,6 +65,8 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
   const [localSeconds, setLocalSeconds] = useState<number | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const { openWithHistory: openSheet, close: closeSheet } = useBackDismiss(sheetOpen, setSheetOpen);
+  const descRef = useRef<HTMLDivElement>(null);
+  const descLines = useFillLines(descRef);
 
   useEffect(() => setSaved(episode.saved), [episode.saved]);
   useEffect(
@@ -247,17 +258,10 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
             </div>
           )}
           {episode.episodedescription && (
-            <div className="episode-meta" style={{ marginTop: 4 }}>
-              <span
-                style={{
-                  display: '-webkit-box',
-                  WebkitLineClamp: 1,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                }}
-              >
+            <div className="episode-desc" ref={descRef}>
+              <div style={{ WebkitLineClamp: descLines }}>
                 {stripHtml(episode.episodedescription)}
-              </span>
+              </div>
             </div>
           )}
         </div>
@@ -315,6 +319,12 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
                   ? 'Remove download'
                   : 'Download for offline'}
             </button>
+            {onRemoveFromContinue && (
+              <button onClick={sheetAction(onRemoveFromContinue)}>
+                <CloseIcon />
+                Remove from Continue listening
+              </button>
+            )}
             {episode.podcastid != null && (
               <button onClick={() => closeSheet(() => navigate(`/podcasts/${episode.podcastid}`))}>
                 <GridIcon />
@@ -326,4 +336,28 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
       )}
     </>
   );
+}
+
+/**
+ * How many whole lines of text fit in `ref`'s box. The description box
+ * stretches into whatever height the row has spare (the action buttons
+ * usually set the row height), so the clamp follows it instead of a fixed
+ * count that would either waste the space or grow the row.
+ */
+function useFillLines(ref: React.RefObject<HTMLElement>): number {
+  const [lines, setLines] = useState(1);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
+      if (!(lineHeight > 0)) return;
+      // Small tolerance for sub-pixel layout.
+      setLines(Math.max(1, Math.floor((el.clientHeight + 1) / lineHeight)));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref]);
+  return lines;
 }

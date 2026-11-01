@@ -1,5 +1,5 @@
 import type { Account, Episode } from './types';
-import { cacheGet, getDownload, listLocalPositions } from './db';
+import { cacheGet, cacheSet, getDownload, listLocalPositions } from './db';
 
 /**
  * Builds the "Continue listening" list by merging two sources of truth:
@@ -15,6 +15,26 @@ import { cacheGet, getDownload, listLocalPositions } from './db';
 const MIN_LISTENED_SECONDS = 30;
 const FINISHED_REMAINING_SECONDS = 60;
 const FINISHED_FRACTION = 0.98;
+
+/** Episode id -> when it was removed from Continue listening (ms). Local
+ * only: the server has no notion of it. */
+const DISMISSED_KEY = 'continue-dismissed';
+type Dismissed = Record<string, number>;
+
+/**
+ * Hide an episode from Continue listening without touching its progress or
+ * played state. It comes back as soon as it's listened to again (here or on
+ * another client), since that activity is newer than the dismissal.
+ */
+export async function dismissFromContinueListening(
+  accountId: string,
+  episodeId: number,
+  now = Date.now(),
+): Promise<void> {
+  const dismissed = (await cacheGet<Dismissed>(accountId, DISMISSED_KEY)) ?? {};
+  dismissed[episodeId] = now;
+  await cacheSet(accountId, DISMISSED_KEY, dismissed);
+}
 
 export function isEffectivelyFinished(ep: Episode, listened: number, duration: number): boolean {
   if (ep.completed) return true;
@@ -78,10 +98,18 @@ export async function buildContinueListening(
     }
   }
 
+  const dismissed = (await cacheGet<Dismissed>(account.id, DISMISSED_KEY)) ?? {};
+  const isDismissed = (e: Entry) => {
+    const at = dismissed[e.ep.episodeid];
+    return at !== undefined && e.lastActivity <= at;
+  };
+
   return [...byId.values()]
     .filter(
       (e) =>
-        e.listened >= MIN_LISTENED_SECONDS && !isEffectivelyFinished(e.ep, e.listened, e.duration),
+        e.listened >= MIN_LISTENED_SECONDS &&
+        !isEffectivelyFinished(e.ep, e.listened, e.duration) &&
+        !isDismissed(e),
     )
     .sort((a, b) => b.lastActivity - a.lastActivity)
     .slice(0, limit)
