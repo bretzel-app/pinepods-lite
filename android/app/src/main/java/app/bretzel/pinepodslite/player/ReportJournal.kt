@@ -62,18 +62,26 @@ class ReportJournal(reports: List<Report> = emptyList(), nextSeq: Long = 1) {
             return try {
                 val o = JSONObject(json)
                 val arr = o.optJSONArray("reports") ?: JSONArray()
-                val list = (0 until arr.length()).map { i ->
-                    val r = arr.getJSONObject(i)
-                    Report(
-                        r.getLong("seq"),
-                        ReportKind.valueOf(r.getString("kind")),
-                        r.getString("key"),
-                        r.getString("payload"),
-                        r.getDouble("seconds"),
-                        r.getLong("at"),
-                    )
+                var maxSeq = 0L
+                // One unreadable entry is skipped; it must not cost the others.
+                val list = (0 until arr.length()).mapNotNull { i ->
+                    val r = arr.optJSONObject(i) ?: return@mapNotNull null
+                    maxSeq = maxOf(maxSeq, r.optLong("seq", 0L))
+                    try {
+                        Report(
+                            r.getLong("seq"),
+                            ReportKind.valueOf(r.getString("kind")),
+                            r.getString("key"),
+                            r.getString("payload"),
+                            r.getDouble("seconds"),
+                            r.getLong("at"),
+                        )
+                    } catch (e: Exception) {
+                        null
+                    }
                 }
-                ReportJournal(list, o.optLong("nextSeq", 1))
+                // Past every seq seen, skipped ones included, so none is reused.
+                ReportJournal(list, maxOf(o.optLong("nextSeq", 1), maxSeq + 1))
             } catch (e: Exception) {
                 ReportJournal()
             }

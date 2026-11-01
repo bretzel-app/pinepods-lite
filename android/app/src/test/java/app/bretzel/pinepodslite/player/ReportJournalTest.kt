@@ -56,4 +56,18 @@ class ReportJournalTest {
         assertTrue(ReportJournal.fromJson(null).pending().isEmpty())
         assertEquals(1L, ReportJournal.fromJson("{").recordPosition("a", "", 0.0, 0).seq)
     }
+
+    @Test fun corruptEntryIsSkippedAndTheRestKept() {
+        val back = ReportJournal.fromJson(
+            """{"nextSeq":4,"reports":[""" +
+                """{"seq":1,"kind":"POSITION","key":"a","payload":"p","seconds":10.0,"at":1},""" +
+                """{"seq":9,"kind":"BOGUS","key":"b","payload":"p","seconds":1.0,"at":2},""" +
+                """"not an object",""" +
+                """{"seq":3,"kind":"ENDED","key":"c","payload":"p","seconds":30.0,"at":3}]}"""
+        )
+        assertEquals(listOf(1L, 3L), back.pending().map { it.seq })
+        assertEquals(listOf("a", "c"), back.pending().map { it.key })
+        // Past every seq seen, the unreadable one's too, so none is reused.
+        assertTrue(back.recordPosition("z", "{}", 0.0, 4).seq > 9)
+    }
 }
