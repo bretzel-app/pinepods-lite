@@ -18,7 +18,7 @@ const plugin = vi.hoisted(() => ({
 vi.mock('../native/plugins', () => ({ NativeDownloads: plugin, isNative: () => false }));
 
 import { deleteDownload, putDownload, putDownloadEntry } from './db';
-import { DownloadFetchError, nativeDownloadBackend, webDownloadBackend } from './downloadBackend';
+import { DownloadCancelledError, DownloadFetchError, nativeDownloadBackend, webDownloadBackend } from './downloadBackend';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -116,5 +116,34 @@ describe('nativeDownloadBackend', () => {
     await nativeDownloadBackend.remove('a', 7);
     expect(deleteDownload).toHaveBeenCalledWith('a', 7);
     expect(plugin.remove).toHaveBeenCalledWith({ key: 'a:7' });
+  });
+
+  it('rejects with DownloadCancelledError when the key disappears', async () => {
+    vi.useFakeTimers();
+    plugin.status.mockResolvedValue({ state: 'unknown' });
+    const p = nativeDownloadBackend.fetchAndStore('https://x/y.mp3', pending, vi.fn());
+    const assertion = expect(p).rejects.toBeInstanceOf(DownloadCancelledError);
+    await vi.advanceTimersByTimeAsync(600);
+    await assertion;
+    expect(plugin.forget).toHaveBeenCalledWith({ key: 'a:7' });
+  });
+
+  const fin = (key: string, entry: string) => ({ key, entry, filePath: `/f/${key}`, mimeType: 'audio/mpeg', size: 1 });
+  const good = (n: number) =>
+    fin(`a:${n}`, JSON.stringify({ key: `a:${n}`, accountId: 'a', episode: { episodeid: n } }));
+
+  it('recoverFinished forgets a garbage entry and still recovers a valid one', async () => {
+    plugin.finished.mockResolvedValue({ downloads: [fin('a:1', '{nope'), good(2)] });
+    expect(await nativeDownloadBackend.recoverFinished()).toBe(1);
+    expect(plugin.forget).toHaveBeenCalledWith({ key: 'a:1' });
+    expect(putDownloadEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it('recoverFinished keeps an entry whose storage failed and recovers the others', async () => {
+    plugin.finished.mockResolvedValue({ downloads: [good(1), good(2)] });
+    vi.mocked(putDownloadEntry).mockRejectedValueOnce(new Error('quota'));
+    expect(await nativeDownloadBackend.recoverFinished()).toBe(1);
+    expect(plugin.forget).toHaveBeenCalledTimes(1);
+    expect(plugin.forget).toHaveBeenCalledWith({ key: 'a:2' });
   });
 });

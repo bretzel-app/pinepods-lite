@@ -123,8 +123,16 @@ class NativeDownloadsPlugin : Plugin() {
             val list = JSArray()
             for (key in prefs.all.keys.toList()) {
                 val t = tracked(key) ?: continue
-                val s = query(t.getLong("downloadId"))
-                if (s.state != "done") continue
+                val id = t.getLong("downloadId")
+                val s = query(id)
+                if (s.state == "running") continue
+                if (s.state != "done") {
+                    // Failed or vanished: nothing will ever finish, so prune it.
+                    file(key).delete()
+                    runCatching { manager.remove(id) }
+                    prefs.edit().remove(key).apply()
+                    continue
+                }
                 val f = file(key)
                 list.put(
                     JSObject()

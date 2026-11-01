@@ -24,6 +24,14 @@ export class DownloadFetchError extends Error {
   }
 }
 
+/** The user cancelled the download (or it vanished): no error, no server fallback. */
+export class DownloadCancelledError extends Error {
+  constructor() {
+    super('Download cancelled');
+    this.name = 'DownloadCancelledError';
+  }
+}
+
 export interface DownloadBackend {
   /** Fetch `url`, persist it, resolve to the stored entry. `fraction` is undefined when the size is unknown. */
   fetchAndStore(
@@ -118,8 +126,11 @@ export const nativeDownloadBackend: DownloadBackend = {
         await NativeDownloads.forget({ key: pending.key });
         return entry;
       }
-      // failed or unknown: let downloadEpisode fall back to the server strategy.
       await NativeDownloads.forget({ key: pending.key });
+      // The key disappeared (removed in the app or cancelled in the system
+      // notification): a user cancel, so no server fallback.
+      if (s.state === 'unknown') throw new DownloadCancelledError();
+      // failed: let downloadEpisode fall back to the server strategy.
       throw new DownloadFetchError('Download failed');
     }
   },
@@ -132,18 +143,31 @@ export const nativeDownloadBackend: DownloadBackend = {
   },
   async recoverFinished() {
     const { downloads } = await NativeDownloads.finished();
+    let recovered = 0;
     for (const d of downloads) {
-      const pending = JSON.parse(d.entry) as PendingDownload;
-      await putDownloadEntry({
-        ...pending,
-        filePath: d.filePath,
-        mimeType: d.mimeType,
-        size: d.size,
-        downloadedAt: Date.now(),
-      });
-      await NativeDownloads.forget({ key: d.key });
+      // Each entry on its own, so one bad entry can't block the rest.
+      let pending: PendingDownload;
+      try {
+        pending = JSON.parse(d.entry) as PendingDownload;
+      } catch {
+        await NativeDownloads.forget({ key: d.key }).catch(() => {});
+        continue;
+      }
+      try {
+        await putDownloadEntry({
+          ...pending,
+          filePath: d.filePath,
+          mimeType: d.mimeType,
+          size: d.size,
+          downloadedAt: Date.now(),
+        });
+        await NativeDownloads.forget({ key: d.key });
+        recovered++;
+      } catch {
+        // Keep the mapping; retried on the next launch.
+      }
     }
-    return downloads.length;
+    return recovered;
   },
 };
 
