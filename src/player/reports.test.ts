@@ -77,7 +77,15 @@ describe('applyReports', () => {
     const d = deps();
     d.markCompleted.mockRejectedValueOnce(new Error('boom'));
     const second = ep({ episodeid: 2 });
-    expect(await applyReports([report(1, 'ended'), report(2, 'ended', { episode: second, key: 'a1:2' })], d)).toBe(2);
+    expect(await applyReports([report(1, 'ended'), report(2, 'ended', { episode: second, key: 'a1:2' })], d)).toBe(0);
     expect(d.calls).toContain('done:a1:2');
+  });
+
+  it('does not ack a failure in the last report', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const d = deps();
+    d.markCompleted.mockRejectedValueOnce(new Error('boom'));
+    const first = ep({ episodeid: 2, completed: true });
+    expect(await applyReports([report(3, 'ended', { episode: first, key: 'a1:2' }), report(4, 'ended')], d)).toBe(3);
   });
 });

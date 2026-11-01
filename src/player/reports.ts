@@ -8,13 +8,17 @@ interface ReportDeps {
 }
 
 /** Replays journal reports the engine recorded (possibly while the UI was
- * gone) in `seq` order. Returns the highest seq seen so the caller can ack. */
+ * gone) in `seq` order, continuing past failures. Returns the seq the caller
+ * may safely ack through: the highest seq seen (0 for an empty batch), or
+ * (seq of the first report that threw) - 1 so a failed report is never acked.
+ * Skipped reports (unknown account, superseded position) count as handled. */
 export async function applyReports(reports: PlaybackReport[], deps: ReportDeps): Promise<number> {
   const ordered = [...reports].sort((a, b) => a.seq - b.seq);
   const endedAt = new Map<string, number>();
   for (const r of ordered) if (r.kind === 'ended') endedAt.set(r.key, r.seq);
 
   let maxSeq = 0;
+  let firstFailed: number | null = null;
   for (const r of ordered) {
     maxSeq = Math.max(maxSeq, r.seq);
     const account = deps.accounts.find((a) => a.id === r.accountId);
@@ -30,8 +34,9 @@ export async function applyReports(reports: PlaybackReport[], deps: ReportDeps):
         if (!r.episode.completed && r.episode.episodeid > 0) await deps.markCompleted(account, r.episode);
       }
     } catch (err) {
+      firstFailed ??= r.seq;
       console.warn('Could not apply playback report', r.seq, err);
     }
   }
-  return maxSeq;
+  return firstFailed != null ? firstFailed - 1 : maxSeq;
 }
