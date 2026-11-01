@@ -86,6 +86,8 @@ export interface DownloadEntry {
   mimeType: string;
   size: number;
   downloadedAt: number;
+  /** On Android, the downloaded file's absolute path. */
+  filePath?: string;
 }
 
 /** A mutation made while offline, replayed when connectivity returns. */

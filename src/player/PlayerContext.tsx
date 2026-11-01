@@ -9,11 +9,12 @@ import {
   type ReactNode,
 } from 'react';
 import type { Account, Episode } from '../lib/types';
-import { cacheGet, cacheSet, getDownloadBlob, getLocalPosition, putLocalPosition } from '../lib/db';
-import { getAllPodcastEpisodes, recordListenDuration, serverStreamUrl } from '../lib/api';
-import { runOrQueue } from '../lib/sync';
+import { cacheGet, cacheSet, getDownloadBlob, getLocalPosition } from '../lib/db';
+import { getAllPodcastEpisodes, serverStreamUrl } from '../lib/api';
 import { markCompleted } from '../lib/episodeActions';
 import { useAccounts } from '../lib/accounts';
+import { resumePoint } from './resume';
+import { savePositionLocally, syncEpisodePosition } from './positions';
 import { chronological, type PlayQueue } from '../lib/playQueue';
 
 const SYNC_INTERVAL_MS = 15_000;
@@ -114,35 +115,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const account = playbackAccountRef.current;
     const ep = episodeRef.current;
     if (!account || !ep || seconds <= 0) return;
-    await putLocalPosition({
-      key: `${account.id}:${ep.episodeid}`,
-      accountId: account.id,
-      episodeId: ep.episodeid,
-      seconds,
-      duration: audioRef.current?.duration || ep.episodeduration,
-      updatedAt: Date.now(),
-      synced: markSynced,
-    });
+    await savePositionLocally(account, ep, seconds, audioRef.current?.duration || ep.episodeduration, markSynced);
   }, []);
 
-  const syncToServer = useCallback(
-    async (seconds: number) => {
-      const account = playbackAccountRef.current;
-      const ep = episodeRef.current;
-      if (!account || !ep || seconds <= 0) return;
-      // Preview episodes (negative synthetic ids) don't exist on the server:
-      // keep resume local-only.
-      if (ep.episodeid < 0) {
-        await persistPosition(seconds, false);
-        return;
-      }
-      await persistPosition(seconds, true);
-      await runOrQueue(account, { kind: 'record_position', episodeId: ep.episodeid, seconds }, () =>
-        recordListenDuration(account, ep.episodeid, seconds),
-      );
-    },
-    [persistPosition],
-  );
+  const syncToServer = useCallback(async (seconds: number) => {
+    const account = playbackAccountRef.current;
+    const ep = episodeRef.current;
+    if (!account || !ep) return;
+    await syncEpisodePosition(account, ep, seconds, audioRef.current?.duration || ep.episodeduration);
+  }, []);
 
   // Wire up the audio element once.
   useEffect(() => {
@@ -256,18 +237,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setOfflineSource(false);
       }
 
-      // Resume point: an explicit start (e.g. tapped transcript line) wins,
-      // else the freshest of local (offline-safe) and server-known position.
-      let resumeAt: number;
-      if (startAt != null) {
-        resumeAt = startAt;
-      } else {
-        const local = await getLocalPosition(account.id, ep.episodeid);
-        const serverSeconds = ep.listenduration ?? 0;
-        resumeAt = Math.max(local?.seconds ?? 0, serverSeconds);
-        const total = ep.episodeduration || 0;
-        if (ep.completed || (total > 0 && resumeAt > total - 15)) resumeAt = 0;
-      }
+      const local = startAt != null ? undefined : await getLocalPosition(account.id, ep.episodeid);
+      const resumeAt = resumePoint(ep, local?.seconds, startAt);
       setPosition(resumeAt);
 
       audio.playbackRate = rate;
