@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PinePods Lite</string>
+    <string name="title_activity_main">PinePods Lite</string>
+    <string name="package_name">app.bretzel.pinepodslite</string>
+    <string name="custom_url_scheme">app.bretzel.pinepodslite</string>
+</resources>

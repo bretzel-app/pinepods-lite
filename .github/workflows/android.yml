@@ -1,0 +1,94 @@
+name: Android
+
+on:
+  push:
+    branches: ['**']   # branches only: tag pushes made by releases never trigger builds
+  workflow_dispatch:
+
+permissions:
+  contents: write      # needed to create and prune releases
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22   # Capacitor 8 requires Node >= 22
+          cache: npm
+
+      - run: npm ci
+      - run: npx vitest run
+      # Builds the web app and copies it into the Android project
+      - run: npm run build:android
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+
+      - name: Unit tests and signed release APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: >
+          ./gradlew :app:testReleaseUnitTest :app:assembleRelease
+          -PversionCode=${{ github.run_number }}
+          -PversionName=0.1.${{ github.run_number }}
+
+      - name: Verify signature and name the APK
+        run: |
+          # apksigner lives in the newest installed build-tools
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          APK=$(ls android/app/build/outputs/apk/release/*.apk)
+          "$BT/apksigner" verify --print-certs "$APK"
+          mv "$APK" "pinepods-lite-0.1.${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pinepods-lite-apk
+          path: pinepods-lite-0.1.${{ github.run_number }}.apk
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.run_number }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          APK="pinepods-lite-0.1.$RUN.apk"
+          NOTES=$(git log -1 --format=%B "$SHA")
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            gh release create "android-v0.1.$RUN" "$APK" \
+              --title "PinePods Lite 0.1.$RUN" --notes "$NOTES" --latest
+          else
+            gh release create "android-test-0.1.$RUN" "$APK" --prerelease --target "$SHA" \
+              --title "PinePods Lite 0.1.$RUN (test, $BRANCH)" --notes "$NOTES"
+          fi
+
+      - name: Prune old releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Keep the newest 10 android-v* and the newest 5 android-test-* releases
+          prune() {
+            gh release list --limit 200 --json tagName,createdAt \
+              --jq "[.[] | select(.tagName | startswith(\"$1\"))] | sort_by(.createdAt) | reverse | .[$2:] | .[].tagName" |
+              while read -r tag; do gh release delete "$tag" --cleanup-tag --yes; done
+          }
+          prune android-v 10
+          prune android-test- 5
