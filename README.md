@@ -85,6 +85,62 @@ asserts the app still renders from cache.
 2. Server-side downloaded copy via `/api/data/stream/{id}` (survives dead CDN links)
 3. The episode's enclosure URL
 
+## Android app
+
+PinePods Lite also ships as a sideloaded Android app.
+
+**Why it exists.** In the browser or PWA on Android, Chrome drops the media session after you
+pause in the background, so headphone play stops working. The app plays through a native
+Media3 service instead: headphone and lock-screen controls keep working while paused, and a
+headphone press resumes the last episode even after Android has killed the app. On Android 13
+and later, the system turns a paused player into a "resume" card after about 10 minutes.
+
+### Building
+
+A GitHub Actions workflow (`.github/workflows/android.yml`) builds a signed APK on every push:
+
+- Pushes to `main` publish a release tagged `android-v0.1.<run>`, marked latest.
+- Pushes to other branches publish a pre-release tagged `android-test-0.1.<run>`.
+- Every run also uploads the APK as a workflow artifact named `pinepods-lite-apk`.
+- The newest 10 releases and the newest 5 test pre-releases are kept.
+
+Local builds are optional. The JS side is `npm run build:android` (runs `npm run build`, then
+`cap sync android`). Compiling the APK locally needs JDK 21 and the Android SDK; CI is the
+normal path.
+
+### Installing
+
+1. On the phone, open the repo's [Releases page](https://github.com/bretzel-app/pinepods-lite/releases).
+2. Download the latest `android-v*` APK and open it.
+3. The first time, allow the browser to install unknown apps.
+4. Later APKs install over the existing app and keep its data.
+
+The app's storage is separate from Chrome's, so on a fresh install log in again and
+re-download your episodes.
+
+### Updates
+
+[Obtainium](https://github.com/ImranR98/Obtainium) can track the
+`github.com/bretzel-app/pinepods-lite` releases. Leave "include prereleases" off so only
+`main` builds arrive. Test builds can be installed by hand from the pre-release.
+
+### Signing
+
+All builds are signed with one release key. It lives outside the repo, in
+`~/pinepods-lite-signing/` (`release.p12` + `password.txt`) on the maintainer's machine, and
+in three repo secrets: `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`. **Back it up and never commit it.** If it is lost, new builds can't
+update the installed app: you would have to uninstall it and lose logins and downloads.
+
+### Downloads and Google Play
+
+On Android, downloads are saved as files in app-specific storage via Android's download
+manager, so they continue in the background, with a system download notification while they
+run.
+
+The app is not on Google Play. Google's "personal library" for private apps (Oct 2026)
+currently only accepts AI Studio-built apps in the US.
+
 ## Known limitations
 
 - Accounts with **MFA enabled** are not supported yet (the login flow surfaces a clear error).
