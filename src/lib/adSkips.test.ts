@@ -58,6 +58,16 @@ describe('skipsFor', () => {
     expect(skipsFor('a:7', src, dl({}), i)).toBeUndefined();
     expect(skipsFor('a:7', src, undefined, i)).toBeUndefined();
   });
+  it('skips an unstamped server-copy download once the server reports a match', () => {
+    // The first look after the scan: refreshAdInfo's stamp may not have reached this entry yet.
+    const src = { kind: 'download', filePath: '/d/a_7' } as const;
+    const i = info([seg('ad', 10, 40, 'active')], { analyzedFingerprint: 'f', download: 'match' });
+    expect(skipsFor('a:7', src, dl({ fromServer: true }), i)).toEqual({ uri: 'file:///d/a_7', ranges: [[10, 40]] });
+    expect(skipsFor('a:7', src, dl({}), i)).toBeUndefined();
+    expect(skipsFor('a:7', src, dl({ fromServer: true, adFingerprint: 'old' }), i)).toBeUndefined();
+    const notYet = { ...i, adAudio: { analyzedFingerprint: 'f', download: 'mismatch' as const } };
+    expect(skipsFor('a:7', src, dl({ fromServer: true }), notYet)).toBeUndefined();
+  });
   it('never matches two null fingerprints', () => {
     const src = { kind: 'download', filePath: '/d/a_7' } as const;
     const i = info([seg('ad', 10, 40, 'active')], { analyzedFingerprint: null, download: 'none' });
@@ -96,6 +106,16 @@ describe('adStatus', () => {
     ['other copy', { saved: true, downloaded: true }, info([seg('ad-scan', 0, 0, null), seg('ad', 10, 40, 'active')], { analyzedFingerprint: 'f', download: 'mismatch' }), server, undefined, 'other_copy'],
   ] as const)('status: %s', (_, e, i, src, d, kind) => {
     expect(adStatus('a:7', episode(e), i, src, d)?.kind ?? null).toBe(kind);
+  });
+  it('counts an unstamped server-copy download as the analyzed copy on a match', () => {
+    const src = { kind: 'download', filePath: '/d/a_7' } as const;
+    const i = info([seg('ad-scan', 0, 0, null), seg('ad', 10, 40, 'active')], { analyzedFingerprint: 'f', download: 'match' });
+    expect(adStatus('a:7', episode({ saved: true, downloaded: true }), i, src, dl({ fromServer: true }))).toEqual({
+      kind: 'skipping',
+      count: 1,
+      seconds: 30,
+    });
+    expect(adStatus('a:7', episode({ saved: true, downloaded: true }), i, src, dl({}))?.kind).toBe('other_copy');
   });
   it('is null without info', () => {
     expect(adStatus('a:7', episode({ saved: true }), undefined, server, undefined)).toBeNull();

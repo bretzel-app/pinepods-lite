@@ -109,7 +109,8 @@ export default function EpisodeDetail() {
     if (!episode) return;
     if (localDownload) void removeDownloadedEpisode(account, id);
     else
-      void downloadEpisode(account, episode).catch((e) =>
+      // The live star: a just-starred episode must download the server's copy.
+      void downloadEpisode(account, { ...episode, saved: saved ?? episode.saved }).catch((e) =>
         alert(`Download failed: ${(e as Error).message}`),
       );
   };

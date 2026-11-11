@@ -173,6 +173,28 @@ describe('NativeEngine', () => {
     });
   });
 
+  it('names the ranges the native player skips for its current item, also after a restart', async () => {
+    const skips = { uri: 'file:///x/a1_7', ranges: [[10, 40]] as [number, number][] };
+    const { plugin, loaded, fire } = fakePlugin();
+    const engine = new NativeEngine(plugin);
+    await engine.init();
+    await engine.load([{ ...downloaded, skips }, streamed], 0, true);
+    fire('state', { ...idle, currentKey: 'a1:7', currentPayload: loaded().items[0].payload });
+    expect(engine.current()?.skips).toEqual(skips);
+    fire('state', { ...idle, currentKey: 'a1:8', currentPayload: loaded().items[1].payload });
+    expect(engine.current()?.skips).toBeUndefined();
+
+    // Adopted after process death: only the stored payload knows them.
+    const payload = JSON.stringify({ accountId: 'a2', episode: ep({ episodeid: 9 }), skips });
+    const restarted = new NativeEngine(fakePlugin({ ...idle, currentKey: 'a2:9', currentPayload: payload }).plugin);
+    await restarted.init();
+    expect(restarted.current()?.skips).toEqual(skips);
+    const garbled = JSON.stringify({ accountId: 'a2', episode: ep({ episodeid: 9 }), skips: { uri: 7 } });
+    const odd = new NativeEngine(fakePlugin({ ...idle, currentKey: 'a2:9', currentPayload: garbled }).plugin);
+    await odd.init();
+    expect(odd.current()?.skips).toBeUndefined();
+  });
+
   it('emits state events to subscribers', async () => {
     const { plugin, fire } = fakePlugin();
     const engine = new NativeEngine(plugin);
@@ -215,7 +237,7 @@ describe('NativeEngine', () => {
     const episode = ep();
     const reports: NativeReport[] = [
       { seq: 3, kind: 'position', key: 'a1:7', payload: JSON.stringify({ accountId: 'a1', episode }), seconds: 61.5, at: 1000 },
-      { seq: 4, kind: 'ended', key: 'a1:7', payload: JSON.stringify({ accountId: 'a1', episode }), seconds: 600, at: 2000 },
+      { seq: 4, kind: 'ended', key: 'a1:7', payload: JSON.stringify({ accountId: 'a1', episode, skips: { uri: 'u', ranges: [[1, 2]] } }), seconds: 600, at: 2000 },
     ];
     const { plugin, calls } = fakePlugin(idle, reports);
     const engine = new NativeEngine(plugin);

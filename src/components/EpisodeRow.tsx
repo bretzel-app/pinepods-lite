@@ -184,7 +184,8 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
     if (localDownload) {
       void removeDownloadedEpisode(account, episode.episodeid);
     } else {
-      void downloadEpisode(account, episode).catch((e) => {
+      // The live star: a just-starred episode must download the server's copy.
+      void downloadEpisode(account, { ...episode, saved }).catch((e) => {
         console.error('Download failed', e);
         alert(`Download failed: ${(e as Error).message}`);
       });

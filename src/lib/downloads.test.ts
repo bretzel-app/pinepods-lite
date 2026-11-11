@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Account, Episode } from './types';
 
 const backend = vi.hoisted(() => ({ fetchAndStore: vi.fn(), attach: vi.fn(), running: vi.fn() }));
@@ -13,7 +13,7 @@ vi.mock('./downloadBackend', async (orig) => ({
   getDownloadBackend: () => backend,
 }));
 
-import { requestServerDownload, serverStreamUrl } from './api';
+import { getEpisodeMetadata, requestServerDownload, serverStreamUrl } from './api';
 import { DownloadCancelledError, DownloadFetchError } from './downloadBackend';
 import { downloadEpisode, getDownloadProgress, resumeDownloads } from './downloads';
 
@@ -66,6 +66,48 @@ describe('downloadEpisode copy choice', () => {
     backend.fetchAndStore.mockResolvedValueOnce({});
     await downloadEpisode(account, { ...episode, downloaded: true } as Episode);
     expect(backend.fetchAndStore.mock.calls[1][1]).toMatchObject({ fromServer: true });
+  });
+});
+
+describe('downloadEpisode of a starred episode', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.useRealTimers());
+
+  it('takes the server copy when the server has it', async () => {
+    backend.fetchAndStore.mockResolvedValueOnce({});
+    await downloadEpisode(account, { ...episode, saved: true, downloaded: true } as Episode);
+    expect(backend.fetchAndStore).toHaveBeenCalledTimes(1);
+    expect(backend.fetchAndStore).toHaveBeenCalledWith('https://s/stream', expect.objectContaining({ fromServer: true }), expect.any(Function));
+    expect(requestServerDownload).not.toHaveBeenCalled();
+  });
+
+  it('never takes the publisher copy: has the server download it, waits, then takes the server copy', async () => {
+    // Just starred: the list still says the server doesn't have it.
+    vi.useFakeTimers();
+    vi.mocked(getEpisodeMetadata)
+      .mockResolvedValueOnce({ downloaded: false } as Episode)
+      .mockResolvedValueOnce({ downloaded: true } as Episode);
+    backend.fetchAndStore.mockResolvedValueOnce({});
+    const done = downloadEpisode(account, { ...episode, saved: true, downloaded: false } as Episode);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(getDownloadProgress(7)?.phase).toBe('server_downloading');
+    expect(backend.fetchAndStore).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(3000);
+    await done;
+
+    expect(requestServerDownload).toHaveBeenCalledWith(account, 7);
+    expect(getEpisodeMetadata).toHaveBeenCalledTimes(2);
+    expect(backend.fetchAndStore).toHaveBeenCalledTimes(1);
+    const [url, pending] = backend.fetchAndStore.mock.calls[0];
+    expect(url).toBe('https://s/stream');
+    expect(pending.fromServer).toBe(true);
+  });
+
+  it('fails rather than fall back to the publisher when the server cannot be asked', async () => {
+    vi.mocked(requestServerDownload).mockRejectedValueOnce(new Error('offline'));
+    await expect(downloadEpisode(account, { ...episode, saved: true, downloaded: false } as Episode)).rejects.toThrow('offline');
+    expect(backend.fetchAndStore).not.toHaveBeenCalled();
+    expect(getDownloadProgress(7)).toBeUndefined();
   });
 });
 

@@ -1,10 +1,17 @@
 import type { Episode } from '../../lib/types';
 import type { NativeItem, NativePlayerPlugin, NativeState } from '../../native/plugins';
-import type { EngineEvent, EngineSnapshot, PlaybackItem, PlaybackReport, PlayerEngine } from './types';
+import type { EngineEvent, EngineSnapshot, PlaybackItem, PlaybackReport, PlayerEngine, Skips } from './types';
 
 interface Payload {
   accountId: string;
   episode: Episode;
+  /** The ranges the service skips for this item (what it was loaded with). */
+  skips?: Skips;
+}
+
+function isSkips(v: unknown): v is Skips {
+  const s = v as Partial<Skips> | null | undefined;
+  return typeof s?.uri === 'string' && Array.isArray(s.ranges);
 }
 
 const IDLE: NativeState = {
@@ -23,7 +30,7 @@ function parsePayload(payload: string | null | undefined): Payload | null {
   try {
     const p = JSON.parse(payload) as Partial<Payload> | null;
     if (typeof p?.accountId !== 'string' || typeof p.episode !== 'object' || p.episode == null) return null;
-    return { accountId: p.accountId, episode: p.episode };
+    return { accountId: p.accountId, episode: p.episode, ...(isSkips(p.skips) ? { skips: p.skips } : {}) };
   } catch {
     return null;
   }
@@ -46,7 +53,7 @@ function toNative(item: PlaybackItem): NativeItem {
     artworkUrl: ep.episodeartwork ?? '',
     startAt: item.startAt,
     duration: ep.episodeduration || 0,
-    // The service skips these ranges while it plays skips.uri (parsePayload ignores them).
+    // The service skips these ranges while it plays skips.uri; current() reads them back.
     payload: JSON.stringify({ accountId: item.accountId, episode: ep, skips: item.skips }),
   };
 }
@@ -133,6 +140,8 @@ export class NativeEngine implements PlayerEngine {
       // side knows the source, the page doesn't need to.
       source: known?.source ?? { kind: 'stream', url: '' },
       startAt: known?.startAt ?? 0,
+      // What the service skips: kept in the payload, so known after a restart too.
+      ...(meta.skips ? { skips: meta.skips } : {}),
     };
   }
 
@@ -182,7 +191,8 @@ export class NativeEngine implements PlayerEngine {
         console.warn('Native player: unreadable report payload', r.seq);
         return [];
       }
-      return [{ seq: r.seq, kind: r.kind, key: r.key, ...meta, seconds: r.seconds, at: r.at }];
+      const { accountId, episode } = meta;
+      return [{ seq: r.seq, kind: r.kind, key: r.key, accountId, episode, seconds: r.seconds, at: r.at }];
     });
   }
 
