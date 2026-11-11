@@ -250,7 +250,12 @@ once.
   `../files/adskip.md:/root/.claude/claudeclaw/jobs/adskip.md:ro`.
 - Claude Code's Bash tool stops a command after at most 10 minutes. So the job runs the
   script with that maximum timeout. The script holds a lock file so that two runs never
-  overlap, and stops starting new Claude runs after 8 minutes.
+  overlap. It works to a 9.5-minute deadline: a Claude run starts only with at least 2
+  minutes left, with a timeout of 5 minutes or the time left, whichever is shorter.
+- A Claude outage (non-zero exit, timeout, error result) stops Claude calls for the rest of
+  the run and sends one alert, without counting against the episode. Only invalid output,
+  failed writes and copy mismatches count toward giving up, and a give-up expires after
+  24 hours.
 - Environment: `PINEPODS_URL` (internal address on the Dokploy network), `PINEPODS_API_KEY`,
   `PINEPODS_USER_ID`, `PINEPODS_DB_URL`, `ADSKIP_ALERT_CHAT_ID`,
   `ADSKIP_NOTIFY_SUCCESS=true`.
