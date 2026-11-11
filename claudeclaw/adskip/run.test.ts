@@ -148,6 +148,16 @@ describe('runOnce', () => {
     expect(s.log).toHaveBeenCalledWith('Huberman Lab – Ep: copy mismatch, re-transcribing');
   });
 
+  it('counts a non-match read-back as an attempt, without an invalid alert', async () => {
+    const s = setup({
+      state: { attempts: { '12': DEFAULT_LIMITS.maxAttempts - 1 } },
+      readBack: sv({ ads: [{ start: 10, end: 40 }], scanned: true, download: 'mismatch' }),
+    });
+    await runOnce(s.deps);
+    expect(s.state().attempts['12']).toBe(DEFAULT_LIMITS.maxAttempts);
+    expect(s.notifier.error).not.toHaveBeenCalled();
+  });
+
   it('invalid Claude output alerts, writes nothing, and the run continues', async () => {
     const outputs = ['not json', result([ad])];
     const s = setup({ episodes: [mk(1), mk(2)], claude: async () => outputs.shift()! });

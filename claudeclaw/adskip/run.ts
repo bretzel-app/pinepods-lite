@@ -117,6 +117,7 @@ export async function runOnce(deps: Deps, limits: typeof DEFAULT_LIMITS = DEFAUL
         }
         if (readBack.download !== 'match') {
           deps.log(`${name}: copy mismatch, re-transcribing`);
+          state.attempts[String(id)] = (state.attempts[String(id)] ?? 0) + 1;
           try {
             await db.clearAds(id);
             await api.transcribe(id, true);
