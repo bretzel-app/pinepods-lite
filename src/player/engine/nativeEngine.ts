@@ -46,7 +46,8 @@ function toNative(item: PlaybackItem): NativeItem {
     artworkUrl: ep.episodeartwork ?? '',
     startAt: item.startAt,
     duration: ep.episodeduration || 0,
-    payload: JSON.stringify({ accountId: item.accountId, episode: ep }),
+    // The service skips these ranges while it plays skips.uri (parsePayload ignores them).
+    payload: JSON.stringify({ accountId: item.accountId, episode: ep, skips: item.skips }),
   };
 }
 
