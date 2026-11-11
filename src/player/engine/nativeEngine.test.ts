@@ -101,6 +101,26 @@ describe('NativeEngine', () => {
     expect(items[1].uri).toBe('https://pods.example.com/stream/8');
   });
 
+  it('hands the skips to the native player in the payload', async () => {
+    const { plugin, loaded } = fakePlugin();
+    const engine = new NativeEngine(plugin);
+    await engine.load(
+      [
+        {
+          ...downloaded,
+          source: { kind: 'download', filePath: '/data/a_7' },
+          skips: { uri: 'file:///data/a_7', ranges: [[10, 40]] },
+        },
+      ],
+      0,
+      true,
+    );
+
+    const [item] = loaded().items;
+    expect(item.uri).toBe('file:///data/a_7');
+    expect(JSON.parse(item.payload).skips).toEqual({ uri: 'file:///data/a_7', ranges: [[10, 40]] });
+  });
+
   it('streams the enclosure of a download item without a local file', async () => {
     const { plugin, loaded, fire } = fakePlugin();
     const engine = new NativeEngine(plugin);

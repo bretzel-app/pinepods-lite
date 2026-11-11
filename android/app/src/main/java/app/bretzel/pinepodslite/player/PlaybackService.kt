@@ -57,6 +57,10 @@ data class PlayerSnapshot(
  * A download whose file is gone streams its enclosure instead (see
  * [MissingDownload]): items are checked as they are handed over or restored,
  * and the current one again before it is played and when it fails.
+ *
+ * Ad ranges in an item's payload (see [SkipRanges]) are jumped over on the
+ * tick, at most a second late, while the audio they were found on plays. A
+ * manual seek into one plays it; the service's own seeks don't count as such.
  */
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaLibraryService() {
@@ -159,6 +163,10 @@ class PlaybackService : MediaLibraryService() {
     private var tracked: Tracked? = null
     /** The item whose ending was reported, so each ending is reported once. */
     private var endedKey: String? = null
+    /** The current item's ad ranges; see [refreshSkips]. */
+    private val skipper = AdSkipper()
+    /** A seek of the service's own is under way: its discontinuity is no manual seek. */
+    private var selfSeek = false
     private var lastCheckpointAt = 0L
     private var fade: Runnable? = null
     private var tickPending = false
@@ -259,6 +267,7 @@ class PlaybackService : MediaLibraryService() {
         if (!autoplay) player.pause() // checkpoints the outgoing item if it was playing
         tracked = currentTracked()
         player.setMediaItems(items.map { it.toMediaItem().playable() }, index, first.startAtMs)
+        refreshSkips()
         endedKey = null
         player.prepare()
         if (autoplay) sessionPlayer.play() // a press of play, even when already playing
@@ -283,6 +292,7 @@ class PlaybackService : MediaLibraryService() {
             current + 1, player.mediaItemCount, items.drop(at + 1).map { it.toMediaItem().playable() },
         )
         player.replaceMediaItems(0, current, items.take(at).map { it.toMediaItem().playable() })
+        refreshSkips()
         persistPlaylist()
     }
 
@@ -351,6 +361,7 @@ class PlaybackService : MediaLibraryService() {
                 else if (out.item.mediaId != endedKey) reportPosition(out)
             }
             endedKey = null
+            refreshSkips()
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
                 startAtResumePoint(mediaItem)
             }
@@ -376,6 +387,9 @@ class PlaybackService : MediaLibraryService() {
             oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int,
         ) {
             if (reason != Player.DISCONTINUITY_REASON_SEEK) return
+            // A seek into another item comes before its transition, which then
+            // hands the skipper that item's ranges (and so drops any exemption).
+            if (selfSeek) selfSeek = false else skipper.onUserSeek(newPosition.positionMs)
             endedKey = null // sought back into an ended item: its next ending counts
             persistResume()
         }
@@ -414,6 +428,8 @@ class PlaybackService : MediaLibraryService() {
         // playWhenReady, not isPlaying: expiring while buffering must still pause.
         if (sleepTimer.tick(player.playWhenReady)) fadeOutThenPause()
         if (sleepTimer.minutes != minutes) store.sleepMinutes = sleepTimer.minutes
+        // In an ad range: jump to its end, or to the end of the item.
+        if (player.isPlaying) skipper.target(player.currentPosition, player.duration)?.let { selfSeekTo(it) }
         if (player.isPlaying && SystemClock.elapsedRealtime() - lastCheckpointAt >= CHECKPOINT_MS) checkpoint()
         tracked = currentTracked() ?: tracked
         emitState()
@@ -544,6 +560,7 @@ class PlaybackService : MediaLibraryService() {
         val index = player.currentMediaItemIndex
         val items = (0 until player.mediaItemCount).map { if (it == index) streamed else player.getMediaItemAt(it) }
         player.setMediaItems(items, index, if (ended) 0L else player.currentPosition)
+        refreshSkips() // the stream is another copy: its ads are elsewhere
         player.prepare()
         persistResume()
         persistPlaylist()
@@ -553,7 +570,26 @@ class PlaybackService : MediaLibraryService() {
     /** Auto-advance and next/previous start an item where it was left, as a load does. */
     private fun startAtResumePoint(item: MediaItem?) {
         val startAt = item?.mediaMetadata?.extras?.getLong(EXTRA_START_AT_MS) ?: return
-        if (startAt > 3_000 && player.currentPosition < 1_000) player.seekTo(startAt)
+        if (startAt > 3_000 && player.currentPosition < 1_000) selfSeekTo(startAt)
+    }
+
+    /** A seek of the service's own (resume point, ad skip): it exempts no ad range. */
+    private fun selfSeekTo(positionMs: Long) {
+        selfSeek = true
+        player.seekTo(positionMs)
+    }
+
+    /**
+     * Hands [skipper] the ranges valid for the audio actually playing, so a
+     * download swapped for its stream has none. The same ranges again keep a
+     * manual seek's exemption (an updated playlist doesn't drop it).
+     */
+    private fun refreshSkips() {
+        val item = player.currentMediaItem
+        val uri = item?.localConfiguration?.uri?.toString()
+        val ranges: List<LongRange> =
+            if (item != null && uri != null) SkipRanges.parse(item.payload(), uri) else emptyList()
+        if (ranges != skipper.ranges) skipper.setRanges(ranges)
     }
 
     private fun emitState() {
