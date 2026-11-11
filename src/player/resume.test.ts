@@ -42,7 +42,11 @@ describe('resolveSource', () => {
     expect(resolveSource(acct, ep({ episodeid: 7, downloaded: true }), undefined)).toEqual({
       kind: 'stream',
       url: serverStreamUrl(acct, 7),
+      server: true,
     }));
+  it('marks the server stream as such', () => {
+    expect(resolveSource(acct, ep({ downloaded: true }), undefined)).toMatchObject({ kind: 'stream', server: true });
+  });
   it('falls back to the enclosure URL', () =>
     expect(resolveSource(acct, ep({ episodeurl: 'http://cdn/x.mp3' }), undefined)).toEqual({
       kind: 'stream',

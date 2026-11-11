@@ -456,3 +456,52 @@ export async function getEpisodeMetadata(account: Account, episodeId: number): P
 export function serverStreamUrl(account: Account, episodeId: number): string {
   return `${account.serverUrl}/api/data/stream/${episodeId}?api_key=${encodeURIComponent(account.apiKey)}&user_id=${account.userId}`;
 }
+
+// ---- ads -------------------------------------------------------------------
+
+export type TranscriptStatus = 'pending' | 'running' | 'complete' | 'failed';
+
+/** Status of the server-generated transcript, or null when there is none. */
+export async function getGeneratedTranscriptStatus(
+  account: Account,
+  episodeId: number,
+): Promise<TranscriptStatus | null> {
+  const body = await request<{ transcript: { status: TranscriptStatus } | null }>(
+    account,
+    `/api/data/episode_transcript?episode_id=${episodeId}&user_id=${account.userId}`,
+  );
+  return body.transcript?.status ?? null;
+}
+
+export interface SkipSegment {
+  kind: string;
+  start: number;
+  end: number;
+  status: string | null;
+}
+
+export interface AdAudio {
+  analyzedFingerprint: string | null;
+  download: 'match' | 'mismatch' | 'unknown' | 'none';
+}
+
+export async function getSkipSegments(
+  account: Account,
+  episodeId: number,
+): Promise<{ segments: SkipSegment[]; adAudio: AdAudio | null }> {
+  const body = await request<{
+    segments?: { kind: string; start_time: number; end_time: number; status: string | null }[];
+    ad_audio?: { analyzed: { fingerprint: string } | null; download: AdAudio['download'] } | null;
+  }>(account, `/api/data/episode_skip_segments?episode_id=${episodeId}&user_id=${account.userId}`);
+  return {
+    segments: (body.segments ?? []).map((s) => ({
+      kind: s.kind,
+      start: s.start_time,
+      end: s.end_time,
+      status: s.status,
+    })),
+    adAudio: body.ad_audio
+      ? { analyzedFingerprint: body.ad_audio.analyzed?.fingerprint ?? null, download: body.ad_audio.download }
+      : null,
+  };
+}
