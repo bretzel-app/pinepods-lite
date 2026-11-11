@@ -139,9 +139,10 @@ export function normalizeEpisode(raw: Record<string, unknown>): Episode {
     listenduration: r.listenduration != null ? Number(r.listenduration) : null,
     listendate: r.listendate != null ? String(r.listendate) : null,
     completed: Boolean(r.completed),
-    saved: Boolean(r.saved),
-    queued: Boolean(r.queued),
-    downloaded: Boolean(r.downloaded),
+    // Lists say saved/queued/downloaded; get_episode_metadata says is_saved/is_queued/is_downloaded.
+    saved: Boolean(r.saved ?? r.is_saved),
+    queued: Boolean(r.queued ?? r.is_queued),
+    downloaded: Boolean(r.downloaded ?? r.is_downloaded),
     is_youtube: Boolean(r.is_youtube),
   };
 }
