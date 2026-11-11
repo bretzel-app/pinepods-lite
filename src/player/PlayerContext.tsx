@@ -10,11 +10,11 @@ import {
 } from 'react';
 import type { Account, Episode } from '../lib/types';
 import { cacheGet, cacheSet, listDownloads, listLocalPositions } from '../lib/db';
-import { getAllPodcastEpisodes } from '../lib/api';
+import { getAllPodcastEpisodes, getEpisodeMetadata } from '../lib/api';
 import { markCompleted } from '../lib/episodeActions';
 import { subscribeDownloads } from '../lib/downloads';
 import { useAccounts } from '../lib/accounts';
-import { buildPlaybackItems, decideStartup, downloadsSignature, playlistWindow } from './resume';
+import { buildPlaybackItems, decideStartup, downloadsSignature, itemChanged, playlistWindow } from './resume';
 import { loadAdInfo } from '../lib/adInfo';
 import { applyReports } from './reports';
 import { savePositionLocally, syncEpisodePosition } from './positions';
@@ -25,6 +25,8 @@ import type { EngineSnapshot, PlaybackItem } from './engine/types';
 const SYNC_INTERVAL_MS = 15_000;
 const LAST_PLAYED_KEY = 'last-played';
 const LAST_QUEUE_KEY = 'last-queue';
+/** How long a play press waits for the server's word on an episode (as loadAdInfo does). */
+const METADATA_TIMEOUT_MS = 3000;
 
 interface PlayerState {
   episode: Episode | null;
@@ -95,6 +97,26 @@ async function playlistItems(
     index,
     downloads: downloadsSignature(downloads),
   };
+}
+
+/** `ep` with the server's current word on whether it is starred and has a server copy (what
+ * decides its source and ad ranges); `ep` as known when offline or the server is slow. */
+async function freshEpisode(account: Account, ep: Episode): Promise<Episode> {
+  if (!navigator.onLine) return ep;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const meta = await Promise.race([
+      getEpisodeMetadata(account, ep.episodeid),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), METADATA_TIMEOUT_MS);
+      }),
+    ]);
+    return { ...ep, downloaded: meta.downloaded, saved: ep.saved || meta.saved };
+  } catch {
+    return ep;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
@@ -333,6 +355,48 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [engine],
   );
 
+  // The list the engine's playlist is a window of, under the playback
+  // account; null until the current episode's neighbours are known.
+  const playlistRef = useRef<{ account: Account; list: Episode[] } | null>(null);
+
+  /** The user plays the engine's current item (`ep`), from where it is or from `startAt`.
+   * Ad ranges or a server copy that came after it was cued never reach the engine by
+   * themselves (after process death Android even keeps the payload it was cued with), so
+   * when it is paused, rebuild it first and, if it would play differently, load it again at
+   * that point instead of resuming. The network part is bounded (metadata, ad info: 3 s each). */
+  const resumeCurrent = useCallback(
+    async (ep: Episode, startAt?: number) => {
+      const current = engine.current();
+      const account = current && accountFor(current.accountId);
+      if (current && account && !engine.snapshot().playing) {
+        const seq = ++loadSeqRef.current;
+        const at = startAt ?? engine.snapshot().position;
+        const target = playlistRef.current;
+        const list = target?.account.id === account.id ? target.list : (queueRef.current?.episodes ?? []);
+        let rebuilt: { items: PlaybackItem[]; index: number } | null = null;
+        try {
+          rebuilt = await playlistItems(account, list, await freshEpisode(account, ep), at);
+        } catch (err) {
+          console.warn('Could not rebuild the current item; resuming it as it is', err);
+        }
+        // A later play took over, or playback moved on meanwhile.
+        if (seq !== loadSeqRef.current) return;
+        const now = engine.current();
+        if (now?.key !== current.key || engine.snapshot().playing) return;
+        if (rebuilt && itemChanged(now, rebuilt.items[rebuilt.index])) {
+          const { items, index } = rebuilt;
+          await engine.load(items, index, true);
+          const loaded = engine.current();
+          if (loaded) setOfflineSource(loaded.source.kind === 'download');
+          return;
+        }
+      }
+      if (startAt != null) engine.seek(startAt);
+      void engine.play();
+    },
+    [engine, accountFor],
+  );
+
   const play = useCallback(
     async (ep: Episode, startAt?: number, fromQueue?: PlayQueue) => {
       if (!active) return;
@@ -350,17 +414,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         void cacheSet(active.id, LAST_QUEUE_KEY, nextQueue);
       }
 
-      // Same episode already cued: just resume (or jump). The engine reloads
-      // a source that failed to load.
+      // Same episode already cued: resume (or jump), reloading it if its source or
+      // ranges changed. The engine reloads a source that failed to load.
       if (isCurrent && engine.current()?.key === keyRef.current) {
-        if (startAt != null) engine.seek(startAt);
-        void engine.play();
+        await resumeCurrent(ep, startAt);
         return;
       }
 
       await loadEpisode(active, ep, nextQueue, true, startAt);
     },
-    [active, engine, loadEpisode],
+    [active, engine, loadEpisode, resumeCurrent],
   );
 
   // On app start (or when switching to an account while idle), adopt what the
@@ -413,9 +476,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [active, engine, initEngine, loadEpisode, onState]);
 
-  // The list the engine's playlist is a window of, under the playback
-  // account; null until the current episode's neighbours are known.
-  const playlistRef = useRef<{ account: Account; list: Episode[] } | null>(null);
   const sendSeqRef = useRef(0);
   // The downloads the last sent playlist's sources were resolved from.
   const sentDownloadsRef = useRef<string | null>(null);
@@ -537,10 +597,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggle = useCallback(() => {
-    if (!episodeRef.current) return;
+    const ep = episodeRef.current;
+    if (!ep) return;
     if (engine.snapshot().playing) engine.pause();
-    else void engine.play();
-  }, [engine]);
+    else void resumeCurrent(ep);
+  }, [engine, resumeCurrent]);
 
   const seek = useCallback((seconds: number) => engine.seek(seconds), [engine]);
 

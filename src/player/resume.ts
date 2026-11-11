@@ -1,7 +1,7 @@
 import type { Account, DownloadEntry, Episode } from '../lib/types';
 import { serverStreamUrl } from '../lib/api';
-import { skipsFor, type AdInfo } from '../lib/adSkips';
-import type { EngineSnapshot, PlaybackItem, PlaybackSource } from './engine/types';
+import { skipsFor, sourceUri, type AdInfo } from '../lib/adSkips';
+import type { EngineSnapshot, PlaybackItem, PlaybackSource, Skips } from './engine/types';
 
 /** Source priority: local download → server-side copy → enclosure URL. */
 export function resolveSource(account: Account, ep: Episode, download: DownloadEntry | undefined): PlaybackSource {
@@ -55,6 +55,24 @@ export function buildPlaybackItems(
       ...(skips ? { skips } : {}),
     };
   });
+}
+
+function sameSkips(a: Skips | undefined, b: Skips | undefined): boolean {
+  if (!a || !b) return !a && !b;
+  return (
+    a.uri === b.uri &&
+    a.ranges.length === b.ranges.length &&
+    a.ranges.every(([start, end], i) => start === b.ranges[i][0] && end === b.ranges[i][1])
+  );
+}
+
+/** Whether `rebuilt` would play differently from the engine's `current` item: other audio or
+ * other ad ranges. A source the engine can't name (a native item adopted after a restart has
+ * an empty url) only has its ranges compared. */
+export function itemChanged(current: PlaybackItem, rebuilt: PlaybackItem): boolean {
+  const uri = sourceUri(current.source, current.key);
+  if (uri !== '' && uri !== sourceUri(rebuilt.source, rebuilt.key)) return true;
+  return !sameSkips(current.skips, rebuilt.skips);
 }
 
 /** What of the downloads decides playable sources: which episodes have one,

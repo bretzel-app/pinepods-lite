@@ -7,6 +7,7 @@ import {
   buildPlaybackItems,
   decideStartup,
   downloadsSignature,
+  itemChanged,
   playlistWindow,
   resolveSource,
   resumePoint,
@@ -141,5 +142,39 @@ describe('buildPlaybackItems skips', () => {
   it('has none without ad info', () => {
     const [item] = buildPlaybackItems(acct, [e], 0, { downloads: new Map(), localSeconds: new Map() });
     expect(item!.skips).toBeUndefined();
+  });
+});
+
+describe('itemChanged', () => {
+  const server = { kind: 'stream', url: 'https://pods.example.com/api/data/stream/7?x', server: true } as const;
+  const item = (o: Partial<PlaybackItem> = {}): PlaybackItem => ({
+    key: 'a1:7',
+    accountId: 'a1',
+    episode: ep({ episodeid: 7 }),
+    source: server,
+    startAt: 42,
+    ...o,
+  });
+  const skips = { uri: server.url, ranges: [[10, 40]] as [number, number][] };
+
+  it('is false for the same audio and the same ranges, whatever the start point', () => {
+    expect(itemChanged(item({ skips }), item({ startAt: 0, skips: { uri: server.url, ranges: [[10, 40]] } }))).toBe(false);
+    expect(itemChanged(item(), item())).toBe(false);
+  });
+  it('is true when ranges arrived, went away or changed', () => {
+    expect(itemChanged(item(), item({ skips }))).toBe(true);
+    expect(itemChanged(item({ skips }), item())).toBe(true);
+    expect(itemChanged(item({ skips }), item({ skips: { ...skips, ranges: [[10, 41]] } }))).toBe(true);
+    expect(itemChanged(item({ skips }), item({ skips: { ...skips, ranges: [[10, 40], [90, 120]] } }))).toBe(true);
+  });
+  it('is true when the audio would come from elsewhere', () => {
+    expect(itemChanged(item({ source: { kind: 'stream', url: 'http://cdn/7.mp3' } }), item())).toBe(true);
+    expect(itemChanged(item(), item({ source: { kind: 'download', filePath: '/x/a1_7' } }))).toBe(true);
+  });
+  it('compares only the ranges when the engine cannot name its source (native item after a restart)', () => {
+    const adopted = item({ source: { kind: 'stream', url: '' } });
+    expect(itemChanged(adopted, item())).toBe(false);
+    expect(itemChanged({ ...adopted, skips }, item({ skips }))).toBe(false);
+    expect(itemChanged(adopted, item({ skips }))).toBe(true);
   });
 });

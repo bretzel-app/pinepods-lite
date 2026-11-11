@@ -37,6 +37,27 @@ describe('refreshAdInfo', () => {
     expect(putDownloadEntry).toHaveBeenCalledWith({ ...entry, adFingerprint: 'f' });
   });
 
+  it('does not fetch the transcript of a scanned episode; keeps the cached status', async () => {
+    const scanned = [{ kind: 'ad-scan', start: 0, end: 0, status: null }];
+    vi.mocked(getSkipSegments).mockResolvedValue({ segments: scanned, adAudio: null });
+    vi.mocked(cacheGet).mockResolvedValue({ transcript: 'complete', segments: [], adAudio: null, fetchedAt: 1 });
+    const info = await refreshAdInfo(account, 7);
+    expect(getGeneratedTranscriptStatus).not.toHaveBeenCalled();
+    expect(cacheGet).toHaveBeenCalledWith('a', 'adinfo:7');
+    expect(info).toMatchObject({ transcript: 'complete', segments: scanned });
+
+    vi.mocked(cacheGet).mockResolvedValue(undefined);
+    expect((await refreshAdInfo(account, 7)).transcript).toBeNull();
+    expect(getGeneratedTranscriptStatus).not.toHaveBeenCalled();
+  });
+
+  it('fetches the transcript status of an episode not scanned yet', async () => {
+    vi.mocked(getSkipSegments).mockResolvedValue({ segments: [], adAudio: null });
+    vi.mocked(getGeneratedTranscriptStatus).mockResolvedValue('running');
+    expect((await refreshAdInfo(account, 7)).transcript).toBe('running');
+    expect(getGeneratedTranscriptStatus).toHaveBeenCalledWith(account, 7);
+  });
+
   it('leaves a download that needs no stamp alone', async () => {
     vi.mocked(getGeneratedTranscriptStatus).mockResolvedValue(null);
     vi.mocked(getSkipSegments).mockResolvedValue({ segments: [], adAudio: match });

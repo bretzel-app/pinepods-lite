@@ -42,10 +42,13 @@ export function skipsFor(
 ): Skips | undefined {
   if (!info) return undefined;
   const analyzed = info.adAudio?.analyzedFingerprint ?? null;
+  // An entry not stamped yet counts with the stamp it is about to get (refreshAdInfo writes it
+  // without telling anyone), so the first look and first play after a scan already skip.
+  const fingerprint = download && (download.adFingerprint ?? stampDownload(download, info)?.adFingerprint);
   const applies =
     source.kind === 'stream'
       ? source.server === true && info.adAudio?.download === 'match'
-      : !!download?.fromServer && download.adFingerprint != null && analyzed != null && download.adFingerprint === analyzed;
+      : !!download?.fromServer && fingerprint != null && analyzed != null && fingerprint === analyzed;
   if (!applies) return undefined;
   const ranges = adRanges(info);
   return ranges.length ? { uri: sourceUri(source, key), ranges } : undefined;
