@@ -1,7 +1,13 @@
 import type { Episode } from '../../lib/types';
 
 /** Where an episode's audio comes from. */
-export type PlaybackSource = { kind: 'download'; filePath?: string } | { kind: 'stream'; url: string };
+export type PlaybackSource = { kind: 'download'; filePath?: string } | { kind: 'stream'; url: string; server?: boolean };
+
+/** Ad ranges to skip, valid for the audio at `uri`. */
+export interface Skips {
+  uri: string;
+  ranges: [number, number][];
+}
 
 export interface PlaybackItem {
   key: string; // `${accountId}:${episodeId}`
@@ -9,6 +15,7 @@ export interface PlaybackItem {
   episode: Episode;
   source: PlaybackSource;
   startAt: number;
+  skips?: Skips;
 }
 
 export interface EngineSnapshot {
