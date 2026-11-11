@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { Episode } from '../lib/types';
 import { useActiveAccount } from '../lib/accounts';
-import { fetchTranscriptContent, getEpisodeTranscriptSources } from '../lib/api';
-import { parseTranscript, type TranscriptSegment } from '../lib/transcript';
+import { loadEpisodeTranscript } from '../lib/episodeTranscript';
+import type { TranscriptSegment } from '../lib/transcript';
 import { useCached } from '../lib/useCached';
 import { usePlayer } from '../player/PlayerContext';
 import { formatDuration } from '../lib/format';
 
 /**
- * Podcasting 2.0 feed transcript for an episode: timestamped lines, tap to
- * jump, with the current line highlighted while this episode plays. Parsed
+ * An episode's transcript (PinePods' own, else the feed's; see loadEpisodeTranscript):
+ * timestamped lines, tap to jump, with the current line highlighted while this episode plays. Parsed
  * segments are cached per account so the transcript reads fine offline.
  */
 interface Props {
@@ -30,26 +30,7 @@ export default function TranscriptView({ episode, autoScroll, readOnly }: Props)
   const transcript = useCached<TranscriptSegment[] | null>(
     account.id,
     `transcript:${episode.episodeid}`,
-    async () => {
-      const sources = await getEpisodeTranscriptSources(account, episode.episodeid);
-      if (sources.length === 0) return null;
-      // Prefer machine-friendly formats: JSON, then SRT, then VTT/anything.
-      const score = (mime: string | null) => {
-        const m = (mime ?? '').toLowerCase();
-        if (m.includes('json')) return 0;
-        if (m.includes('srt') || m.includes('subrip')) return 1;
-        if (m.includes('vtt')) return 2;
-        return 3;
-      };
-      const sorted = [...sources].sort((a, b) => score(a.mime_type) - score(b.mime_type));
-      for (const source of sorted) {
-        const content = await fetchTranscriptContent(account, source.url!);
-        if (!content) continue;
-        const segments = parseTranscript(content, source.mime_type);
-        if (segments.length > 0) return segments;
-      }
-      return null;
-    },
+    () => loadEpisodeTranscript(account, episode.episodeid),
   );
 
   const isCurrent = player.episode?.episodeid === episode.episodeid;
@@ -101,7 +82,7 @@ export default function TranscriptView({ episode, autoScroll, readOnly }: Props)
     return <div className="error-box">Couldn't load the transcript: {transcript.error.message}</div>;
   }
   if (transcript.data === null || segments.length === 0) {
-    return <div className="notice">This podcast doesn't publish a transcript for this episode.</div>;
+    return <div className="notice">No transcript for this episode yet.</div>;
   }
 
   const onLineClick = (segment: TranscriptSegment) => {
