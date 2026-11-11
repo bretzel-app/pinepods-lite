@@ -88,6 +88,10 @@ export interface DownloadEntry {
   downloadedAt: number;
   /** On Android, the downloaded file's absolute path. */
   filePath?: string;
+  /** Taken from the PinePods server's copy rather than the publisher's. */
+  fromServer?: boolean;
+  /** Fingerprint of the server copy this file matches; set once. */
+  adFingerprint?: string;
 }
 
 /** A mutation made while offline, replayed when connectivity returns. */

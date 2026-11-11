@@ -5,7 +5,7 @@ import type { EngineSnapshot, PlaybackItem, PlaybackSource } from './engine/type
 /** Source priority: local download → server-side copy → enclosure URL. */
 export function resolveSource(account: Account, ep: Episode, download: DownloadEntry | undefined): PlaybackSource {
   if (download) return { kind: 'download', filePath: download.filePath };
-  if (ep.downloaded) return { kind: 'stream', url: serverStreamUrl(account, ep.episodeid) };
+  if (ep.downloaded) return { kind: 'stream', url: serverStreamUrl(account, ep.episodeid), server: true };
   return { kind: 'stream', url: ep.episodeurl };
 }
 
