@@ -1,4 +1,5 @@
 import type { Account, Episode, Podcast, SearchResult } from './types';
+import type { TranscriptSegment } from './transcript';
 
 /**
  * Thin typed client for the PinePods HTTP API (Rust/Axum backend).
@@ -472,6 +473,33 @@ export async function getGeneratedTranscriptStatus(
     `/api/data/episode_transcript?episode_id=${episodeId}&user_id=${account.userId}`,
   );
   return body.transcript?.status ?? null;
+}
+
+/** PinePods' own (whisper) transcript of the episode, once complete; null otherwise. Its times
+ * fit the server's copy of the episode. */
+export async function getGeneratedTranscript(
+  account: Account,
+  episodeId: number,
+): Promise<TranscriptSegment[] | null> {
+  const body = await request<{ transcript: { status: TranscriptStatus; segments: string | null } | null }>(
+    account,
+    `/api/data/episode_transcript?episode_id=${episodeId}&user_id=${account.userId}`,
+  );
+  const t = body.transcript;
+  if (t?.status !== 'complete' || !t.segments) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(t.segments);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(raw)) return null;
+  const segments: TranscriptSegment[] = [];
+  for (const s of raw as { start?: unknown; text?: unknown }[]) {
+    const text = typeof s?.text === 'string' ? s.text.trim() : '';
+    if (text) segments.push({ start: typeof s.start === 'number' ? s.start : null, text });
+  }
+  return segments.length > 0 ? segments : null;
 }
 
 export interface SkipSegment {
