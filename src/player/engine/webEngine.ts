@@ -1,4 +1,6 @@
 import { getDownloadBlob } from '../../lib/db';
+import { sourceUri } from '../../lib/adSkips';
+import { AdSkipper } from '../adSkip';
 import type { EngineEvent, EngineSnapshot, PlaybackItem, PlaybackReport, PlayerEngine } from './types';
 
 /** Fade-out when the sleep timer expires: 25 steps × 200 ms ≈ 5 s. */
@@ -30,6 +32,7 @@ export class WebEngine implements PlayerEngine {
   private autoAdvance = false;
   // Set while auto-advancing so the play it causes isn't taken for a press.
   private autoAdvancing = false;
+  private readonly skipper = new AdSkipper();
 
   private sleepMinutes: number | null = null;
   private sleepRepeat = false;
@@ -44,7 +47,7 @@ export class WebEngine implements PlayerEngine {
     this.audio = audio;
     this.loadBlob = loadBlob;
     audio.preload = 'metadata';
-    audio.addEventListener('timeupdate', this.emitState);
+    audio.addEventListener('timeupdate', this.onTimeUpdate);
     audio.addEventListener('durationchange', this.emitState);
     audio.addEventListener('ratechange', this.emitState);
     audio.addEventListener('play', this.onPlay);
@@ -104,6 +107,7 @@ export class WebEngine implements PlayerEngine {
     audio.playbackRate = this.rate;
     // Applied on loadedmetadata; setting currentTime too early is ignored.
     this.pendingSeek = item.startAt > 3 ? item.startAt : null;
+    this.applySkips(item);
     this.updateMetadata(item);
     this.updateTrackActions();
     this.emitState();
@@ -125,7 +129,11 @@ export class WebEngine implements PlayerEngine {
     const at = items.findIndex((i) => i.key === current.key);
     if (at < 0) return;
     // Keep the cued item itself: only its neighbours change.
-    this.items = items.map((item, i) => (i === at ? current : item));
+    // Its skips may have arrived since it was cued.
+    const fresh = items[at]!;
+    const kept = fresh.skips === current.skips ? current : { ...current, skips: fresh.skips };
+    this.items = items.map((item, i) => (i === at ? kept : item));
+    if (kept !== current) this.applySkips(kept);
     this.index = at;
     this.updateTrackActions();
   }
@@ -153,6 +161,7 @@ export class WebEngine implements PlayerEngine {
   }
 
   seek(seconds: number): void {
+    this.skipper.onUserSeek(seconds);
     this.audio.currentTime = seconds;
     // Before metadata, or on a failed source, the element can't seek yet:
     // keep the target for when it (re)loads.
@@ -224,6 +233,20 @@ export class WebEngine implements PlayerEngine {
   private emitState = (): void => {
     this.updatePlaybackState();
     this.emit({ type: 'state', snapshot: this.snapshot() });
+  };
+
+  /** Ranges apply only to the exact copy they were found on. */
+  private applySkips(item: PlaybackItem): void {
+    const played = item.source;
+    const ok = item.skips != null && item.skips.uri === sourceUri(played, item.key);
+    this.skipper.setRanges(ok ? item.skips!.ranges : []);
+  }
+
+  private onTimeUpdate = (): void => {
+    const audio = this.audio;
+    const to = this.skipper.target(audio.currentTime, audio.duration || 0);
+    if (to != null) audio.currentTime = to;
+    this.emitState();
   };
 
   private onMetadata = (): void => {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Account, DownloadEntry, Episode } from '../lib/types';
 import { serverStreamUrl } from '../lib/api';
+import type { AdInfo } from '../lib/adSkips';
 import type { EngineSnapshot, PlaybackItem } from './engine/types';
 import {
   buildPlaybackItems,
@@ -119,4 +120,26 @@ describe('downloadsSignature', () => {
   });
   it('changes when a file path changes', () =>
     expect(downloadsSignature([dl(1, '/f/1')])).not.toBe(downloadsSignature([dl(1, '/g/1')])));
+});
+
+describe('buildPlaybackItems skips', () => {
+  const e = ep({ episodeid: 5, downloaded: true });
+  const info = {
+    transcript: 'complete',
+    segments: [{ kind: 'ad', start: 10, end: 40, status: 'active' }],
+    adAudio: { download: 'match', analyzedFingerprint: 'f' },
+    fetchedAt: 0,
+  } as unknown as AdInfo;
+  it('attaches skips for the analyzed server copy', () => {
+    const [item] = buildPlaybackItems(acct, [e], 0, {
+      downloads: new Map(),
+      localSeconds: new Map(),
+      adInfo: new Map([[5, info]]),
+    });
+    expect(item!.skips).toEqual({ uri: serverStreamUrl(acct, 5), ranges: [[10, 40]] });
+  });
+  it('has none without ad info', () => {
+    const [item] = buildPlaybackItems(acct, [e], 0, { downloads: new Map(), localSeconds: new Map() });
+    expect(item!.skips).toBeUndefined();
+  });
 });
