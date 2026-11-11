@@ -4,9 +4,9 @@ import {
   markEpisodeCompleted,
   markEpisodeUncompleted,
   recordListenDuration,
-  saveEpisode,
   unsaveEpisode,
 } from './api';
+import { starEpisode } from './episodeActions';
 
 /**
  * Offline mutation queue. Any write that fails because the network is down is
@@ -45,7 +45,7 @@ export async function flushPendingOps(account: Account): Promise<void> {
       try {
         switch (op.kind) {
           case 'save_episode':
-            await saveEpisode(account, op.episodeId);
+            await starEpisode(account, op.episodeId);
             break;
           case 'unsave_episode':
             await unsaveEpisode(account, op.episodeId);

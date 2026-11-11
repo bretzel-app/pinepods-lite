@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import type { Episode } from '../lib/types';
 import { useActiveAccount } from '../lib/accounts';
-import { getEpisodeMetadata, saveEpisode, unsaveEpisode } from '../lib/api';
+import { getEpisodeMetadata, unsaveEpisode } from '../lib/api';
+import { starEpisode } from '../lib/episodeActions';
 import { useCached } from '../lib/useCached';
 import { usePlayer } from '../player/PlayerContext';
 import { formatDate, formatDuration } from '../lib/format';
@@ -99,7 +100,7 @@ export default function EpisodeDetail() {
     void runOrQueue(
       account,
       next ? { kind: 'save_episode', episodeId: id } : { kind: 'unsave_episode', episodeId: id },
-      () => (next ? saveEpisode(account, id) : unsaveEpisode(account, id)),
+      () => (next ? starEpisode(account, id) : unsaveEpisode(account, id)),
     );
   }, [account, episode, id, saved]);
 
