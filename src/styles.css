@@ -10,6 +10,7 @@
   --accent: #6ee7a0;
   --accent-dim: #3d8c60;
   --danger: #f87171;
+  --warning: #f0b24a;
   --nav-height: 56px;
   --player-height: 64px;
 }
@@ -29,6 +30,7 @@
   --accent: #c8860a;
   --accent-dim: #a66f0f;
   --danger: #a63d2f;
+  --warning: #a8590c;
 }
 
 [data-theme='bretzel'] body {
@@ -1172,4 +1174,19 @@ a {
 .show-more {
   display: block;
   margin: 12px auto;
+}
+
+.ad-status {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.ad-status--skipping {
+  color: var(--accent);
+}
+
+.ad-status--transcription_failed,
+.ad-status--other_copy,
+.ad-status--expired {
+  color: var(--warning);
 }
