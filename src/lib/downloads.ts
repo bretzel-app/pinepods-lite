@@ -92,7 +92,10 @@ function releaseDownloadSlot() {
 /** Download an episode's audio into IndexedDB. Resolves when playable offline. */
 export function downloadEpisode(account: Account, episode: Episode): Promise<void> {
   return runDownload(account, episode, (backend, pending, onProgress) =>
-    backend.fetchAndStore(episode.episodeurl, pending, onProgress),
+    // The server's copy is the one its ad ranges fit; prefer it when it has one.
+    episode.downloaded
+      ? backend.fetchAndStore(serverStreamUrl(account, episode.episodeid), { ...pending, fromServer: true }, onProgress)
+      : backend.fetchAndStore(episode.episodeurl, pending, onProgress),
   );
 }
 
@@ -107,7 +110,10 @@ export async function resumeDownloads(accounts: Account[]): Promise<void> {
   for (const pending of await getDownloadBackend().running()) {
     const account = accounts.find((a) => a.id === pending.accountId);
     if (!account || inFlight.has(pending.episode.episodeid)) continue;
-    void runDownload(account, pending.episode, (backend, p, onProgress) => backend.attach(p, onProgress)).catch(
+    void runDownload(account, pending.episode, (backend, _p, onProgress) =>
+      // Keep the running download's own fromServer, which runDownload's fresh pending lacks.
+      backend.attach(pending, onProgress),
+    ).catch(
       (err) => console.warn('Could not finish a download', err),
     );
   }
@@ -162,7 +168,11 @@ async function runDownload(
           if (Date.now() > deadline) throw new Error('Server download timed out');
         }
       }
-      await backend.fetchAndStore(serverStreamUrl(account, episodeId), pending, progressFor('fetching'));
+      await backend.fetchAndStore(
+        serverStreamUrl(account, episodeId),
+        { ...pending, fromServer: true },
+        progressFor('fetching'),
+      );
     }
   } finally {
     releaseDownloadSlot();

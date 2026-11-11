@@ -41,6 +41,14 @@ describe('webDownloadBackend.fetchAndStore', () => {
     expect(onProgress).toHaveBeenCalled();
   });
 
+  it('keeps fromServer on the stored web entry', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array(10))));
+    const pending = { key: 'a:7', accountId: 'a', episode: { episodeid: 7 } as Episode, fromServer: true };
+    const entry = await webDownloadBackend.fetchAndStore('https://x/y.mp3', pending, vi.fn());
+    expect(entry.fromServer).toBe(true);
+    expect(vi.mocked(putDownload).mock.calls[0][0].fromServer).toBe(true);
+  });
+
   it('rejects with DownloadFetchError on an HTTP error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 404 })));
     const pending = { key: 'a:7', accountId: 'a', episode: { episodeid: 7 } as Episode };
@@ -106,6 +114,26 @@ describe('nativeDownloadBackend', () => {
     expect(putDownloadEntry).toHaveBeenCalledTimes(2);
     expect(putDownloadEntry).toHaveBeenCalledWith(expect.objectContaining({ key: 'a:1', filePath: '/f/a_1', size: 1 }));
     expect(plugin.forget).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps fromServer through a native download, recovery and running', async () => {
+    vi.useFakeTimers();
+    const fs = { ...pending, fromServer: true };
+    plugin.status.mockResolvedValueOnce({ state: 'done', filePath: '/f/a_7', size: 1 });
+    const p = nativeDownloadBackend.fetchAndStore('https://x/y.mp3', fs, vi.fn());
+    await vi.advanceTimersByTimeAsync(600);
+    expect((await p).fromServer).toBe(true);
+
+    const entry = JSON.stringify(fs);
+    plugin.finished.mockResolvedValue({
+      downloads: [{ key: 'a:7', entry, filePath: '/f/a_7', mimeType: 'audio/mpeg', size: 1 }],
+    });
+    vi.mocked(putDownloadEntry).mockClear();
+    await nativeDownloadBackend.recoverFinished();
+    expect(putDownloadEntry).toHaveBeenCalledWith(expect.objectContaining({ fromServer: true }));
+
+    plugin.running.mockResolvedValue({ downloads: [{ key: 'a:7', entry }] });
+    expect((await nativeDownloadBackend.running())[0].fromServer).toBe(true);
   });
 
   it('removeAccount removes by account prefix', async () => {
