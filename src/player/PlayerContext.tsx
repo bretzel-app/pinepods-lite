@@ -15,6 +15,7 @@ import { markCompleted } from '../lib/episodeActions';
 import { subscribeDownloads } from '../lib/downloads';
 import { useAccounts } from '../lib/accounts';
 import { buildPlaybackItems, decideStartup, downloadsSignature, playlistWindow } from './resume';
+import { loadAdInfo } from '../lib/adInfo';
 import { applyReports } from './reports';
 import { savePositionLocally, syncEpisodePosition } from './positions';
 import { chronological, type PlayQueue } from '../lib/playQueue';
@@ -83,11 +84,12 @@ async function playlistItems(
     listDownloads(account.id),
     listLocalPositions(account.id),
   ]);
+  const cued = episodes.map((e, i) => (i === index ? ep : e));
   const ctx = {
     downloads: new Map(downloads.map((d) => [d.episode.episodeid, d])),
     localSeconds: new Map(positions.map((p) => [p.episodeId, p.seconds])),
+    adInfo: await loadAdInfo(account, cued, ep),
   };
-  const cued = episodes.map((e, i) => (i === index ? ep : e));
   return {
     items: buildPlaybackItems(account, cued, index, ctx, startAt),
     index,

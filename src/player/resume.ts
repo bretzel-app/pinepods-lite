@@ -1,5 +1,6 @@
 import type { Account, DownloadEntry, Episode } from '../lib/types';
 import { serverStreamUrl } from '../lib/api';
+import { skipsFor, type AdInfo } from '../lib/adSkips';
 import type { EngineSnapshot, PlaybackItem, PlaybackSource } from './engine/types';
 
 /** Source priority: local download → server-side copy → enclosure URL. */
@@ -37,16 +38,23 @@ export function buildPlaybackItems(
   account: Account,
   episodes: Episode[],
   index: number,
-  ctx: { downloads: Map<number, DownloadEntry>; localSeconds: Map<number, number> },
+  ctx: { downloads: Map<number, DownloadEntry>; localSeconds: Map<number, number>; adInfo?: Map<number, AdInfo> },
   startAt?: number,
 ): PlaybackItem[] {
-  return episodes.map((episode, i) => ({
-    key: `${account.id}:${episode.episodeid}`,
-    accountId: account.id,
-    episode,
-    source: resolveSource(account, episode, ctx.downloads.get(episode.episodeid)),
-    startAt: resumePoint(episode, ctx.localSeconds.get(episode.episodeid), i === index ? startAt : undefined),
-  }));
+  return episodes.map((episode, i) => {
+    const key = `${account.id}:${episode.episodeid}`;
+    const download = ctx.downloads.get(episode.episodeid);
+    const source = resolveSource(account, episode, download);
+    const skips = skipsFor(key, source, download, ctx.adInfo?.get(episode.episodeid));
+    return {
+      key,
+      accountId: account.id,
+      episode,
+      source,
+      startAt: resumePoint(episode, ctx.localSeconds.get(episode.episodeid), i === index ? startAt : undefined),
+      ...(skips ? { skips } : {}),
+    };
+  });
 }
 
 /** What of the downloads decides playable sources: which episodes have one,
