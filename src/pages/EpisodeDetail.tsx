@@ -17,6 +17,7 @@ import {
 } from '../lib/downloads';
 import { runOrQueue } from '../lib/sync';
 import { markCompleted, markUncompleted } from '../lib/episodeActions';
+import AdStatus from '../components/AdStatus';
 import TranscriptView from '../components/TranscriptView';
 import { CheckIcon, DownloadIcon, PauseIcon, PlayIcon, StarIcon, TrashIcon } from '../components/icons';
 
@@ -154,6 +155,7 @@ export default function EpisodeDetail() {
             <span>
               {started ? `${formatDuration(Math.max(0, total - listened))} left` : formatDuration(total)}
             </span>
+            {saved && <AdStatus account={account} episode={episode} compact={false} />}
           </div>
           {(started || isCompleted) && total > 0 && (
             <div className="progress-track" style={{ marginTop: 10 }}>

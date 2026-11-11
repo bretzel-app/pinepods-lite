@@ -21,6 +21,7 @@ import {
   markUncompleted,
   subscribeCompletion,
 } from '../lib/episodeActions';
+import AdStatus from './AdStatus';
 import { useBackDismiss } from '../lib/useBackDismiss';
 import {
   CheckIcon,
@@ -236,6 +237,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
                 : formatDuration(total)}
             </span>
             {saved && <StarIcon filled className="meta-star" />}
+            {saved && <AdStatus account={account} episode={episode} compact />}
             {downloading && (
               <span className="pill">
                 {progress !== undefined ? `${Math.round(progress * 100)}%` : 'downloading…'}

@@ -191,7 +191,7 @@ async function main() {
         total: 2,
       });
     if (p.startsWith('/api/data/saved_episode_list/'))
-      return json({ saved_episodes: [episodes[1]], total: 1 });
+      return json({ saved_episodes: [{ ...episodes[1], downloaded: true }], total: 1 });
     if (p === '/api/data/podcast_episodes') {
       // A long-running show, paged by the server.
       if (url.searchParams.get('podcast_id') === '99') {
@@ -282,6 +282,16 @@ async function main() {
         success: true,
         content:
           '1\n00:00:10,000 --> 00:00:14,000\nHello transcript world\n\n2\n00:00:14,000 --> 00:00:20,000\nSecond line here\n',
+      });
+    if (p === '/api/data/episode_transcript')
+      return json({ transcript: { status: 'complete', segments: '[]' } });
+    if (p === '/api/data/episode_skip_segments')
+      return json({
+        segments: [
+          { kind: 'ad', start_time: 100, end_time: 160, status: 'active' },
+          { kind: 'ad-scan', start_time: 0, end_time: 0, status: null },
+        ],
+        ad_audio: { analyzed: { fingerprint: 'fp1' }, download: 'match' },
       });
     if (p === '/api/data/get_episode_metadata') {
       const body = route.request().postDataJSON();
@@ -514,6 +524,8 @@ async function main() {
   await page.click('nav.sidebar a[href="/saved"]');
   await page.waitForFunction(() => document.body.textContent.includes('Episode Two'));
   console.log('PASS saved list');
+  await page.waitForFunction(() => document.querySelector('.ad-status')?.textContent === '1 ads skipped');
+  console.log('PASS ad status on saved episode');
 
   // ---- action sheet: save + mark played/unplayed from the list ----
   await page.click('nav.sidebar a[href="/"]');
