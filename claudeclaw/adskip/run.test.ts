@@ -139,6 +139,15 @@ describe('runOnce', () => {
     expect(s.log).toHaveBeenCalledWith('Huberman Lab – Ep: copy mismatch, re-transcribing');
   });
 
+  it.each([['unknown'], ['none'], [null]] as const)('re-transcribes when the read-back copy status is %s', async (download) => {
+    const s = setup({ readBack: sv({ ads: [{ start: 10, end: 40 }], scanned: true, download }) });
+    await runOnce(s.deps);
+    expect(s.db.clearAds).toHaveBeenCalledWith(12);
+    expect(s.api.transcribe).toHaveBeenCalledWith(12, true);
+    expect(s.notifier.success).not.toHaveBeenCalled();
+    expect(s.log).toHaveBeenCalledWith('Huberman Lab – Ep: copy mismatch, re-transcribing');
+  });
+
   it('invalid Claude output alerts, writes nothing, and the run continues', async () => {
     const outputs = ['not json', result([ad])];
     const s = setup({ episodes: [mk(1), mk(2)], claude: async () => outputs.shift()! });

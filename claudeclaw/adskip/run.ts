@@ -115,7 +115,7 @@ export async function runOnce(deps: Deps, limits: typeof DEFAULT_LIMITS = DEFAUL
           await notifier.error('pinepods', `${name}: ${msg(e)}`);
           continue;
         }
-        if (readBack.download === 'mismatch') {
+        if (readBack.download !== 'match') {
           deps.log(`${name}: copy mismatch, re-transcribing`);
           try {
             await db.clearAds(id);
@@ -125,7 +125,7 @@ export async function runOnce(deps: Deps, limits: typeof DEFAULT_LIMITS = DEFAUL
           }
           continue;
         }
-        if (readBack.download === 'match') delete state.attempts[String(id)];
+        delete state.attempts[String(id)];
       } else {
         delete state.attempts[String(id)];
       }
