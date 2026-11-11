@@ -3,6 +3,7 @@ import type { Account, DownloadEntry, Episode } from '../lib/types';
 import { adInfoKey, refreshAdInfo } from '../lib/adInfo';
 import { adStatus, adStatusLabel } from '../lib/adSkips';
 import { getDownload } from '../lib/db';
+import { subscribeDownloads } from '../lib/downloads';
 import { resolveSource } from '../player/resume';
 import { useCached } from '../lib/useCached';
 
@@ -19,13 +20,18 @@ export default function AdStatus({ account, episode, localDownload, compact }: P
   const info = useCached(account.id, adInfoKey(id), () => refreshAdInfo(account, id));
   const [loaded, setLoaded] = useState<DownloadEntry | undefined>(undefined);
   useEffect(() => {
-    let cancelled = false;
     if (localDownload) return;
-    void getDownload(account.id, id).then((d) => {
-      if (!cancelled) setLoaded(d);
-    });
+    let cancelled = false;
+    const load = () => {
+      void getDownload(account.id, id).then((d) => {
+        if (!cancelled) setLoaded(d);
+      });
+    };
+    load();
+    const unsub = subscribeDownloads(load);
     return () => {
       cancelled = true;
+      unsub();
     };
   }, [account.id, id, localDownload]);
   const download = localDownload ?? loaded;
