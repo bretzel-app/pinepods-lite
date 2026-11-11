@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "build:android": "npm run build && cap sync android",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc -b --noEmit && tsc -p claudeclaw/adskip --noEmit",
     "build:adskip": "bun build claudeclaw/adskip/main.ts --target=bun --outfile=claudeclaw/adskip/dist/adskip.js",
     "smoke": "node scripts/smoke.mjs",
     "test": "vitest run"

@@ -72,6 +72,35 @@ describe('pinepodsApi', () => {
     expect(f.calls[1].body).toEqual({ episode_id: 12, user_id: 7, force: true });
     expect(f.calls[1].headers['Api-Key']).toBe('k');
   });
+  it('throws on a 2xx body that is not JSON (a wrong PINEPODS_URL)', async () => {
+    const html = (async () => new Response('<html>Dokploy</html>', { status: 200 })) as unknown as typeof fetch;
+    await expect(pinepodsApi('http://pp', 'k', 7, html).saved()).rejects.toBeInstanceOf(PinepodsError);
+    const empty = (async () => new Response('', { status: 200 })) as unknown as typeof fetch;
+    await expect(pinepodsApi('http://pp', 'k', 7, empty).skips(12)).rejects.toBeInstanceOf(PinepodsError);
+  });
+  it('throws when the saved list has no saved_episodes array', async () => {
+    const f = fakeFetch({ '/api/data/saved_episode_list/7': { detail: 'not found' } });
+    await expect(pinepodsApi('http://pp', 'k', 7, f).saved()).rejects.toBeInstanceOf(PinepodsError);
+  });
+  it('reads an empty saved list as no episodes', async () => {
+    const f = fakeFetch({ '/api/data/saved_episode_list/7': { saved_episodes: [] } });
+    expect(await pinepodsApi('http://pp', 'k', 7, f).saved()).toEqual([]);
+  });
+  it.each([
+    ['segments that are not JSON', '[{"start":0,'],
+    ['segments that are not a list', '{"start":0}'],
+    ['a segment without numeric times', '[{"start":"0","end":2,"text":"hi"}]'],
+    ['a segment that is not an object', '[null]'],
+  ])('throws on %s', async (_, segments) => {
+    const f = fakeFetch({ '/api/data/episode_transcript?episode_id=12&user_id=7': { transcript: { status: 'complete', segments } } });
+    await expect(pinepodsApi('http://pp', 'k', 7, f).transcript(12)).rejects.toBeInstanceOf(PinepodsError);
+  });
+  it('reads a transcript without segments yet as no segments', async () => {
+    for (const segments of [null, undefined, '']) {
+      const f = fakeFetch({ '/api/data/episode_transcript?episode_id=12&user_id=7': { transcript: { status: 'pending', segments } } });
+      expect(await pinepodsApi('http://pp', 'k', 7, f).transcript(12)).toEqual({ status: 'pending', segments: [] });
+    }
+  });
   it('throws PinepodsError with the status on non-2xx', async () => {
     const f = fakeFetch({}, 500);
     const err = await pinepodsApi('http://pp', 'k', 7, f).saved().catch((e) => e);

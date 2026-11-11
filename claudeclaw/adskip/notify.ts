@@ -3,11 +3,21 @@ import type { StateStore } from './state';
 
 const DAY_MS = 24 * 60 * 60_000;
 
+const minutes = (ranges: AdRange[]): number =>
+  Math.max(1, Math.round(ranges.reduce((sum, r) => sum + (r.end - r.start), 0) / 60));
+
+/** The Telegram message for a finished episode. */
 export function formatSuccess(ep: SavedEpisode, ranges: AdRange[]): string {
   const head = `${ep.podcast} – ${ep.title}`;
   if (ranges.length === 0) return `${head}: no ads found`;
-  const seconds = ranges.reduce((sum, r) => sum + (r.end - r.start), 0);
-  return `${head}: ${ranges.length} ads · ${Math.max(1, Math.round(seconds / 60))} min removed`;
+  return `${head}: ${ranges.length} ads · ${minutes(ranges)} min removed`;
+}
+
+/** The job log's line for a finished episode: ids and counts only, never titles or labels,
+ * because the job's own (tool-enabled) Claude reads the log and those come from publishers. */
+export function formatLogLine(episodeId: number, ranges: AdRange[]): string {
+  if (ranges.length === 0) return `episode ${episodeId}: no ads found`;
+  return `episode ${episodeId}: ${ranges.length} ads, ${minutes(ranges)} min`;
 }
 
 export function telegramNotifier(o: {

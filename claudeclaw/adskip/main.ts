@@ -7,11 +7,13 @@ import { claudeArgs } from './prompt';
 import { runOnce } from './run';
 import { lockIsFree } from './state';
 import type { RunState, StateStore } from './state';
+import { ClaudeUnavailable, claudeStdout } from './validate';
 
 const DIR = '/root/.claude/adskip';
 const STATE_FILE = `${DIR}/state.json`;
 const LOCK_FILE = `${DIR}/lock`;
-const CLAUDE_TIMEOUT_MS = 5 * 60_000;
+
+const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 function fileStore(): StateStore {
   return {
@@ -37,28 +39,63 @@ function lockMtime(): number | null {
   }
 }
 
-async function claude(prompt: string): Promise<string> {
-  const proc = Bun.spawn(['claude', ...claudeArgs()], {
-    stdin: new TextEncoder().encode(prompt),
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
+/** Takes the lock; false when another run holds it. */
+function takeLock(now: number): boolean {
+  const mtime = lockMtime();
+  if (!lockIsFree(mtime, now)) return false;
+  // Stale: its run died without cleaning up.
+  if (mtime !== null) rmSync(LOCK_FILE, { force: true });
+  try {
+    writeFileSync(LOCK_FILE, String(process.pid), { flag: 'wx' });
+    return true;
+  } catch (e) {
+    // Another run took it in between.
+    if ((e as { code?: string }).code === 'EEXIST') return false;
+    throw e;
+  }
+}
+
+/** The `claude` process running now, if any; it goes with the job. */
+let child: { kill(): void } | null = null;
+
+/** Only once this run holds the lock: a run that doesn't must never remove it. */
+function releaseLockOnSignals(): void {
+  for (const [signal, code] of [['SIGTERM', 143], ['SIGINT', 130]] as const) {
+    process.on(signal, () => {
+      child?.kill();
+      rmSync(LOCK_FILE, { force: true });
+      process.exit(code);
+    });
+  }
+}
+
+async function claude(prompt: string, timeoutMs: number): Promise<string> {
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn(['claude', ...claudeArgs()], {
+      stdin: new TextEncoder().encode(prompt),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+  } catch (e) {
+    throw new ClaudeUnavailable(`claude could not be started: ${msg(e)}`);
+  }
+  child = proc;
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
     proc.kill();
-  }, CLAUDE_TIMEOUT_MS);
+  }, timeoutMs);
   try {
-    const [out, err, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout as ReadableStream).text(),
+      new Response(proc.stderr as ReadableStream).text(),
       proc.exited,
     ]);
-    if (timedOut) throw new Error('claude timed out after 5 minutes');
-    if (code !== 0) throw new Error(`claude exited with code ${code}: ${err.slice(-500)}`);
-    return out;
+    return claudeStdout({ code, timedOut, stdout, stderr, timeoutMs });
   } finally {
     clearTimeout(timer);
+    child = null;
   }
 }
 
@@ -67,34 +104,42 @@ async function main(): Promise<number> {
   try {
     cfg = readConfig(process.env);
   } catch (e) {
-    console.error(e instanceof Error ? e.message : String(e));
+    console.error(msg(e));
     return 1;
   }
 
-  mkdirSync(DIR, { recursive: true });
   const now = Date.now;
-  if (!lockIsFree(lockMtime(), now())) return 0;
-  writeFileSync(LOCK_FILE, String(process.pid));
-
+  const store = fileStore();
+  const notifier = telegramNotifier({
+    token: cfg.telegramToken, chatId: cfg.chatId, notifySuccess: cfg.notifySuccess, store, now,
+  });
   const lines: string[] = [];
   try {
-    const store = fileStore();
-    await runOnce({
-      api: pinepodsApi(cfg.pinepodsUrl, cfg.apiKey, cfg.userId),
-      db: bunDb(cfg.dbUrl),
-      claude,
-      notifier: telegramNotifier({
-        token: cfg.telegramToken, chatId: cfg.chatId, notifySuccess: cfg.notifySuccess, store, now,
-      }),
-      store,
-      now,
-      log: (line) => lines.push(line),
-    });
+    mkdirSync(DIR, { recursive: true });
+    if (!takeLock(now())) return 0;
+    releaseLockOnSignals();
+    try {
+      await runOnce({
+        api: pinepodsApi(cfg.pinepodsUrl, cfg.apiKey, cfg.userId),
+        db: bunDb(cfg.dbUrl),
+        claude,
+        notifier,
+        store,
+        now,
+        log: (line) => lines.push(line),
+      });
+    } finally {
+      rmSync(LOCK_FILE, { force: true });
+    }
   } catch (e) {
     console.error(e instanceof Error ? e.stack ?? e.message : String(e));
+    // Nobody reads stderr (the job runs with notify: false).
+    try {
+      await notifier.error('unexpected', `unexpected error: ${msg(e)}`);
+    } catch {
+      // best effort
+    }
     return 1;
-  } finally {
-    rmSync(LOCK_FILE, { force: true });
   }
   if (lines.length > 0) console.log(lines.join('\n'));
   return 0;

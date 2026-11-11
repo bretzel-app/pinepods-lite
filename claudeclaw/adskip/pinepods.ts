@@ -11,6 +11,27 @@ export class PinepodsError extends Error {
 
 const truthy = (v: unknown): boolean => v === true || v === 1 || v === '1' || v === 'true';
 
+/** Transcript segments (a JSON string of `[{start, end, text}]`); none yet while it is being made. */
+function parseSegments(episodeId: number, raw: unknown): Seg[] {
+  if (raw === null || raw === undefined || raw === '') return [];
+  const bad = (why: string) => new PinepodsError(`PinePods transcript of episode ${episodeId}: ${why}`);
+  let parsed: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw bad('segments are not JSON');
+    }
+  }
+  if (!Array.isArray(parsed)) throw bad('segments are not a list');
+  return parsed.map((s: any) => {
+    if (!s || typeof s.start !== 'number' || typeof s.end !== 'number' || !Number.isFinite(s.start) || !Number.isFinite(s.end)) {
+      throw bad('a segment has no numeric start/end');
+    }
+    return { start: s.start, end: s.end, text: typeof s.text === 'string' ? s.text : String(s.text ?? '') };
+  });
+}
+
 export function pinepodsApi(
   baseUrl: string,
   apiKey: string,
@@ -35,18 +56,19 @@ export function pinepodsApi(
     }
     if (!res.ok) throw new PinepodsError(`PinePods ${path} returned ${res.status}`, res.status);
     const text = await res.text();
-    if (!text) return {};
     try {
       return JSON.parse(text);
     } catch {
-      return {};
+      // Not PinePods answering (a wrong PINEPODS_URL), which must not pass for "nothing there".
+      throw new PinepodsError(`PinePods ${path} answered ${res.status} without JSON; check PINEPODS_URL`, res.status);
     }
   }
 
   return {
     async saved(): Promise<SavedEpisode[]> {
       const data = await call(`/api/data/saved_episode_list/${userId}`);
-      const rows: any[] = Array.isArray(data?.saved_episodes) ? data.saved_episodes : [];
+      if (!Array.isArray(data?.saved_episodes)) throw new PinepodsError('PinePods saved_episode_list has no saved_episodes list');
+      const rows: any[] = data.saved_episodes;
       return rows.map((r) => ({
         episodeId: Number(r.episodeid),
         title: String(r.episodetitle ?? ''),
@@ -66,14 +88,7 @@ export function pinepodsApi(
       const data = await call(`/api/data/episode_transcript?episode_id=${episodeId}&user_id=${userId}`);
       const t = data?.transcript;
       if (!t) return null;
-      let segments: Seg[] = [];
-      try {
-        const parsed = typeof t.segments === 'string' ? JSON.parse(t.segments) : t.segments;
-        if (Array.isArray(parsed)) segments = parsed;
-      } catch {
-        segments = [];
-      }
-      return { status: t.status, segments };
+      return { status: t.status, segments: parseSegments(episodeId, t.segments) };
     },
     async skips(episodeId): Promise<SkipView> {
       const data = await call(`/api/data/episode_skip_segments?episode_id=${episodeId}&user_id=${userId}`);
