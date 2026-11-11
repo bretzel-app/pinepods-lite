@@ -13,7 +13,7 @@ vi.mock('./downloadBackend', async (orig) => ({
   getDownloadBackend: () => backend,
 }));
 
-import { requestServerDownload } from './api';
+import { requestServerDownload, serverStreamUrl } from './api';
 import { DownloadCancelledError, DownloadFetchError } from './downloadBackend';
 import { downloadEpisode, getDownloadProgress, resumeDownloads } from './downloads';
 
@@ -36,6 +36,36 @@ describe('downloadEpisode', () => {
     backend.fetchAndStore.mockResolvedValueOnce({});
     await downloadEpisode(account, { ...episode, downloaded: true } as Episode);
     expect(backend.fetchAndStore).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('downloadEpisode copy choice', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('takes the server copy first when the server has the episode', async () => {
+    backend.fetchAndStore.mockResolvedValueOnce({});
+    await downloadEpisode(account, { ...episode, downloaded: true } as Episode);
+    expect(backend.fetchAndStore).toHaveBeenCalledTimes(1);
+    expect(backend.fetchAndStore).toHaveBeenCalledWith(
+      serverStreamUrl(account, 7),
+      expect.objectContaining({ fromServer: true }),
+      expect.any(Function),
+    );
+  });
+
+  it('takes the publisher copy when the server has none, without fromServer', async () => {
+    backend.fetchAndStore.mockResolvedValueOnce({});
+    await downloadEpisode(account, episode);
+    const [url, pending] = backend.fetchAndStore.mock.calls[0];
+    expect(url).toBe('https://x/y.mp3');
+    expect(pending.fromServer).toBeUndefined();
+  });
+
+  it('marks the server fallback as fromServer', async () => {
+    backend.fetchAndStore.mockRejectedValueOnce(new DownloadFetchError('x'));
+    backend.fetchAndStore.mockResolvedValueOnce({});
+    await downloadEpisode(account, { ...episode, downloaded: true } as Episode);
+    expect(backend.fetchAndStore.mock.calls[1][1]).toMatchObject({ fromServer: true });
   });
 });
 
@@ -80,7 +110,11 @@ describe('resumeDownloads', () => {
     backend.fetchAndStore.mockResolvedValueOnce({});
     await resumeDownloads([account]);
     await vi.waitFor(() => expect(backend.fetchAndStore).toHaveBeenCalledTimes(1));
-    expect(backend.fetchAndStore).toHaveBeenCalledWith('https://s/stream', pending, expect.any(Function));
+    expect(backend.fetchAndStore).toHaveBeenCalledWith(
+      'https://s/stream',
+      { ...pending, fromServer: true },
+      expect.any(Function),
+    );
     await vi.waitFor(() => expect(getDownloadProgress(23)).toBeUndefined());
   });
 });

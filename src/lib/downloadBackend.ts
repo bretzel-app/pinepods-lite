@@ -8,7 +8,7 @@ import { NativeDownloads, isNative } from '../native/plugins';
  * "fetch the bytes and store them" and "delete" steps differ — strategy
  * selection, queueing and progress throttling stay in downloads.ts.
  */
-export type PendingDownload = Pick<DownloadEntry, 'key' | 'accountId' | 'episode'>;
+export type PendingDownload = Pick<DownloadEntry, 'key' | 'accountId' | 'episode' | 'fromServer'>;
 
 /**
  * Thrown by a backend when getting the bytes failed (network, HTTP status,
@@ -86,6 +86,7 @@ export const webDownloadBackend: DownloadBackend = {
       key: pending.key,
       accountId: pending.accountId,
       episode: pending.episode,
+      ...(pending.fromServer ? { fromServer: true } : {}),
       mimeType: blob.type || 'audio/mpeg',
       size: blob.size,
       downloadedAt: Date.now(),
@@ -195,7 +196,7 @@ export const nativeDownloadBackend: DownloadBackend = {
       try {
         const p = JSON.parse(d.entry) as Partial<PendingDownload> | null;
         if (typeof p?.accountId === 'string' && typeof p.episode?.episodeid === 'number') {
-          return [{ key: d.key, accountId: p.accountId, episode: p.episode }];
+          return [{ key: d.key, accountId: p.accountId, episode: p.episode, ...(p.fromServer ? { fromServer: true } : {}) }];
         }
       } catch {
         // fall through
