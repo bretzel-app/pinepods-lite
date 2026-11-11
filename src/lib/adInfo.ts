@@ -9,10 +9,12 @@ export const adInfoKey = (episodeId: number): string => `adinfo:${episodeId}`;
 
 /** Fetch from the server, cache, and stamp the local download if it matches. */
 export async function refreshAdInfo(account: Account, episodeId: number): Promise<AdInfo> {
-  const [transcript, { segments, adAudio }] = await Promise.all([
-    getGeneratedTranscriptStatus(account, episodeId),
-    getSkipSegments(account, episodeId),
-  ]);
+  const { segments, adAudio } = await getSkipSegments(account, episodeId);
+  // The transcript endpoint sends the whole transcript; its status only matters before the
+  // scan (adStatus doesn't read it after), so a scanned episode keeps what was cached.
+  const transcript = segments.some((s) => s.kind === 'ad-scan')
+    ? ((await cacheGet<AdInfo>(account.id, adInfoKey(episodeId)))?.transcript ?? null)
+    : await getGeneratedTranscriptStatus(account, episodeId);
   const info: AdInfo = { transcript, segments, adAudio, fetchedAt: Date.now() };
   await cacheSet(account.id, adInfoKey(episodeId), info);
   const download = await getDownload(account.id, episodeId);

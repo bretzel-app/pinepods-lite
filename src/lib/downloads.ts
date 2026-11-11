@@ -89,8 +89,12 @@ function releaseDownloadSlot() {
   downloadQueue.shift()?.();
 }
 
-/** Download an episode's audio into IndexedDB. Resolves when playable offline. */
+/** Download an episode's audio into IndexedDB. Resolves when playable offline.
+ * `episode.saved` must be the live starred state: a starred episode only ever takes the server's copy. */
 export function downloadEpisode(account: Account, episode: Episode): Promise<void> {
+  // A starred episode's ad ranges are found on the server's copy, so its download must be that
+  // copy even when the server doesn't have it yet (just starred): the server strategy alone.
+  if (episode.saved && !episode.downloaded) return runDownload(account, episode, null);
   return runDownload(account, episode, (backend, pending, onProgress) =>
     // The server's copy is the one its ad ranges fit; prefer it when it has one.
     episode.downloaded
@@ -119,11 +123,12 @@ export async function resumeDownloads(accounts: Account[]): Promise<void> {
   }
 }
 
-/** One download, `first` getting the bytes from the podcast CDN (strategy 1). */
+/** One download: `first` gets the bytes (strategy 1); when it can't, or when there is no
+ * `first`, the server downloads the episode and the bytes come from it (strategy 2). */
 async function runDownload(
   account: Account,
   episode: Episode,
-  first: (backend: DownloadBackend, pending: PendingDownload, onProgress: (fraction?: number) => void) => Promise<unknown>,
+  first: ((backend: DownloadBackend, pending: PendingDownload, onProgress: (fraction?: number) => void) => Promise<unknown>) | null,
 ): Promise<void> {
   const episodeId = episode.episodeid;
   if (inFlight.has(episodeId)) return;
@@ -143,15 +148,17 @@ async function runDownload(
     const progressFor = (phase: DownloadPhase) => (fraction?: number) =>
       setProgress({ episodeId, phase, fraction });
 
-    // Strategy 1: straight from the podcast CDN.
-    let stored = true;
-    try {
-      await first(backend, pending, progressFor('fetching'));
-    } catch (e) {
-      // Only fetch failures fall back; storage errors (e.g. quota) propagate.
-      if (e instanceof DownloadCancelledError) return;
-      if (!(e instanceof DownloadFetchError)) throw e;
-      stored = false;
+    // Strategy 1: from the source `first` picked.
+    let stored = false;
+    if (first) {
+      try {
+        await first(backend, pending, progressFor('fetching'));
+        stored = true;
+      } catch (e) {
+        // Only fetch failures fall back; storage errors (e.g. quota) propagate.
+        if (e instanceof DownloadCancelledError) return;
+        if (!(e instanceof DownloadFetchError)) throw e;
+      }
     }
 
     // Strategy 2: server-side download, then stream the bytes from the server.
