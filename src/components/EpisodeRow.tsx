@@ -12,7 +12,8 @@ import {
   removeDownloadedEpisode,
   subscribeDownloads,
 } from '../lib/downloads';
-import { saveEpisode, unsaveEpisode } from '../lib/api';
+import { unsaveEpisode } from '../lib/api';
+import { starEpisode } from '../lib/episodeActions';
 import { runOrQueue } from '../lib/sync';
 import {
   knownCompleted,
@@ -174,7 +175,7 @@ export default function EpisodeRow({ episode, hidePodcast, onChanged, queue }: P
         ? { kind: 'save_episode', episodeId: episode.episodeid }
         : { kind: 'unsave_episode', episodeId: episode.episodeid },
       () =>
-        next ? saveEpisode(account, episode.episodeid) : unsaveEpisode(account, episode.episodeid),
+        next ? starEpisode(account, episode.episodeid) : unsaveEpisode(account, episode.episodeid),
     ).then(() => onChanged?.());
   }, [account, episode.episodeid, saved, onChanged]);
 

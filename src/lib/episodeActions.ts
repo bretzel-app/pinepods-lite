@@ -1,5 +1,11 @@
 import type { Account, Episode } from './types';
-import { markEpisodeCompleted, markEpisodeUncompleted } from './api';
+import {
+  getEpisodeMetadata,
+  markEpisodeCompleted,
+  markEpisodeUncompleted,
+  requestServerDownload,
+  saveEpisode,
+} from './api';
 import { cacheSet } from './db';
 import { removeDownloadedEpisode } from './downloads';
 import { runOrQueue } from './sync';
@@ -53,4 +59,19 @@ export async function markUncompleted(account: Account, episode: Episode): Promi
     markEpisodeUncompleted(account, id),
   );
   await cacheSet(account.id, `episode:${id}`, { ...episode, completed: false });
+}
+
+/**
+ * Star (save) an episode and ask the server to download it, so the ad-skip job
+ * can transcribe it. A failed save propagates (so it can be queued offline);
+ * the download request is best-effort and never fails the star.
+ */
+export async function starEpisode(account: Account, episodeId: number): Promise<void> {
+  await saveEpisode(account, episodeId);
+  try {
+    const meta = await getEpisodeMetadata(account, episodeId);
+    if (!meta.downloaded && !meta.is_youtube) await requestServerDownload(account, episodeId);
+  } catch (e) {
+    console.warn('Could not request the server download for a starred episode', e);
+  }
 }
