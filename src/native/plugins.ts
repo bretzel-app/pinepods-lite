@@ -47,6 +47,9 @@ export interface NativePlayerPlugin {
   getState(): Promise<NativeState>;
   readReports(): Promise<{ reports: NativeReport[] }>;
   ackReports(o: { throughSeq: number }): Promise<void>;
+  /** TEMPORARY: the headset diagnostics log, oldest line first. */
+  getDebugLog(): Promise<{ text: string }>;
+  clearDebugLog(): Promise<void>;
   addListener(e: 'state', fn: (s: NativeState) => void): Promise<PluginListenerHandle>;
   addListener(e: 'reports', fn: () => void): Promise<PluginListenerHandle>;
 }

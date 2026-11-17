@@ -2,6 +2,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAccounts } from '../lib/accounts';
 import { CheckIcon, PlusIcon, SwapIcon, TrashIcon } from '../components/icons';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { HeadsetLog } from '../components/HeadsetLog';
+import { isNative } from '../native/plugins';
 import { usePlayer } from '../player/PlayerContext';
 
 export default function Accounts() {
@@ -96,6 +98,7 @@ export default function Accounts() {
           timer still stops playback.
         </p>
       </div>
+      {isNative() && <HeadsetLog />}
     </div>
   );
 }

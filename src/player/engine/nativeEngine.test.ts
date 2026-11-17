@@ -54,6 +54,8 @@ function fakePlugin(state: NativeState = idle, reports: NativeReport[] = []) {
     getState: async () => state,
     readReports: async () => ({ reports }),
     ackReports: record('ackReports'),
+    getDebugLog: async () => ({ text: '' }),
+    clearDebugLog: record('clearDebugLog'),
     addListener: (async (event: string, fn: (arg?: unknown) => void) => {
       handlers.set(event, [...(handlers.get(event) ?? []), fn]);
       return { remove: async () => {} };

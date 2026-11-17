@@ -7,9 +7,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.util.Log
 import android.view.KeyEvent
-import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.core.content.IntentCompat
 import androidx.media3.common.AudioAttributes
@@ -389,11 +387,16 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            debugShow("playWhenReady=$playWhenReady reason=${playWhenReadyReason(reason)}")
             when {
                 // Auto-advance off: paused at the end of an item, which ended.
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM -> currentTracked()?.let { reportEnded(it) }
                 !playWhenReady -> checkpoint()
             }
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            debugShow("isPlaying=$isPlaying suppression=${player.playbackSuppressionReason}")
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -611,15 +614,22 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
-     * TEMPORARY diagnostics for the headset tap: logs, and shows on screen, what
-     * reaches the player and which controller sent it ("app" for this app's own
-     * calls, which don't go through the session). Remove once diagnosed.
+     * TEMPORARY diagnostics for the headset tap: logs (see [DebugLog]) what
+     * reaches the player and which controller sent it (none named: this app's
+     * own calls, which don't go through the session). Remove once diagnosed.
      */
     private fun debugShow(what: String) {
         val from = if (::session.isInitialized) session.controllerForCurrentRequest?.packageName else null
-        val text = if (from != null) "$what from $from" else what
-        Log.i(TAG, text)
-        Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+        DebugLog.add(this, if (from != null) "$what from $from" else what)
+    }
+
+    private fun playWhenReadyReason(reason: Int) = when (reason) {
+        Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST -> "user"
+        Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS -> "audio focus loss"
+        Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY -> "becoming noisy"
+        Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE -> "remote"
+        Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM -> "end of item"
+        else -> reason.toString()
     }
 
     private fun emitState() {

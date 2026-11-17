@@ -109,6 +109,20 @@ class NativePlayerPlugin : Plugin() {
         }
     }
 
+    /** TEMPORARY: the headset diagnostics log (see [DebugLog]). */
+    @PluginMethod
+    fun getDebugLog(call: PluginCall) {
+        main.post { call.resolve(JSObject().put("text", DebugLog.read(context.applicationContext))) }
+    }
+
+    @PluginMethod
+    fun clearDebugLog(call: PluginCall) {
+        main.post {
+            DebugLog.clear(context.applicationContext)
+            call.resolve()
+        }
+    }
+
     /** Unacknowledged reports, live or as stored when the service isn't running. */
     @PluginMethod
     fun readReports(call: PluginCall) {
