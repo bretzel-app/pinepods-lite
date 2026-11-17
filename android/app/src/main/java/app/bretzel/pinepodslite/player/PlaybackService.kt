@@ -9,6 +9,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.core.content.IntentCompat
 import androidx.media3.common.AudioAttributes
@@ -213,17 +214,29 @@ class PlaybackService : MediaLibraryService() {
             // quick settings, headphones and Bluetooth, and playback resumption.
             // Auto-advance never calls play(), so it doesn't count.
             override fun play() {
+                debugShow("play()")
                 onUserPlay()
                 streamCurrentIfMissing()
                 super.play()
             }
 
             override fun setPlayWhenReady(playWhenReady: Boolean) {
+                debugShow("setPlayWhenReady($playWhenReady)")
                 if (playWhenReady) {
                     onUserPlay()
                     streamCurrentIfMissing()
                 }
                 super.setPlayWhenReady(playWhenReady)
+            }
+
+            override fun pause() {
+                debugShow("pause()")
+                super.pause()
+            }
+
+            override fun seekToNext() {
+                debugShow("seekToNext()")
+                super.seekToNext()
             }
 
             // A play from idle prepares first: swap a dead file before it is read.
@@ -597,6 +610,18 @@ class PlaybackService : MediaLibraryService() {
         if (ranges != skipper.ranges) skipper.setRanges(ranges)
     }
 
+    /**
+     * TEMPORARY diagnostics for the headset tap: logs, and shows on screen, what
+     * reaches the player and which controller sent it ("app" for this app's own
+     * calls, which don't go through the session). Remove once diagnosed.
+     */
+    private fun debugShow(what: String) {
+        val from = if (::session.isInitialized) session.controllerForCurrentRequest?.packageName else null
+        val text = if (from != null) "$what from $from" else what
+        Log.i(TAG, text)
+        Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+    }
+
     private fun emitState() {
         listener?.onState(snapshot())
     }
@@ -643,8 +668,7 @@ class PlaybackService : MediaLibraryService() {
             val event = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
                 ?: return false
             val playing = !Util.shouldShowPlayButton(player)
-            Log.i(
-                TAG,
+            debugShow(
                 "Media button ${KeyEvent.keyCodeToString(event.keyCode)} " +
                     "${if (event.action == KeyEvent.ACTION_DOWN) "down" else "up"} repeat=${event.repeatCount} " +
                     "from ${controllerInfo.packageName}, playing=$playing",
