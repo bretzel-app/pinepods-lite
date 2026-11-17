@@ -1,12 +1,16 @@
 package app.bretzel.pinepodslite.player
 
 import android.app.PendingIntent
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
+import android.view.KeyEvent
 import androidx.annotation.OptIn
+import androidx.core.content.IntentCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -77,6 +81,7 @@ class PlaybackService : MediaLibraryService() {
         /** Gets state and report events (the plugin); outlives service instances. */
         var listener: Listener? = null
 
+        private const val TAG = "PlaybackService"
         private const val ROOT_ID = "root"
         private const val EXTRA_PAYLOAD = "payload"
         private const val EXTRA_DURATION_MS = "durationMs"
@@ -627,6 +632,26 @@ class PlaybackService : MediaLibraryService() {
                 )
             }
             return Futures.immediateFuture(result.build())
+        }
+
+        // Headphones, Bluetooth and the notification. Logged, so `adb logcat -s
+        // PlaybackService` shows what a headset actually sends. A press of play
+        // while playing pauses (see MediaButtons); the rest is Media3's.
+        override fun onMediaButtonEvent(
+            session: MediaSession, controllerInfo: MediaSession.ControllerInfo, intent: Intent,
+        ): Boolean {
+            val event = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+                ?: return false
+            val playing = !Util.shouldShowPlayButton(player)
+            Log.i(
+                TAG,
+                "Media button ${KeyEvent.keyCodeToString(event.keyCode)} " +
+                    "${if (event.action == KeyEvent.ACTION_DOWN) "down" else "up"} repeat=${event.repeatCount} " +
+                    "from ${controllerInfo.packageName}, playing=$playing",
+            )
+            if (!MediaButtons.playMeansPause(event.keyCode, event.action, event.repeatCount, playing)) return false
+            player.pause()
+            return true
         }
 
         override fun onGetLibraryRoot(
