@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
+import android.view.ViewConfiguration
 import androidx.annotation.OptIn
 import androidx.core.content.IntentCompat
 import androidx.media3.common.AudioAttributes
@@ -173,6 +174,14 @@ class PlaybackService : MediaLibraryService() {
     private var selfSeek = false
     private var lastCheckpointAt = 0L
     private var fade: Runnable? = null
+    private val taps = PlayPauseTaps(
+        ViewConfiguration.getDoubleTapTimeout().toLong(),
+        post = { r, delay -> main.postDelayed(r, delay) },
+        cancel = { main.removeCallbacks(it) },
+        // Through sessionPlayer: a press of play, as when Media3 handles it.
+        toggle = { Util.handlePlayPauseButtonAction(sessionPlayer) },
+        next = { sessionPlayer.seekToNext() },
+    )
     private var tickPending = false
     private val tick = Runnable {
         tickPending = false
@@ -669,9 +678,9 @@ class PlaybackService : MediaLibraryService() {
             return Futures.immediateFuture(result.build())
         }
 
-        // Headphones, Bluetooth and the notification. Logged, so `adb logcat -s
-        // PlaybackService` shows what a headset actually sends. A press of play
-        // while playing pauses (see MediaButtons); the rest is Media3's.
+        // Headphones, Bluetooth and the notification. Play/pause presses that
+        // other apps relay (Media3's legacy controllers: Bluetooth, the Google
+        // app for Pixel Buds) go to [taps]; the rest is Media3's.
         override fun onMediaButtonEvent(
             session: MediaSession, controllerInfo: MediaSession.ControllerInfo, intent: Intent,
         ): Boolean {
@@ -683,8 +692,16 @@ class PlaybackService : MediaLibraryService() {
                     "${if (event.action == KeyEvent.ACTION_DOWN) "down" else "up"} repeat=${event.repeatCount} " +
                     "from ${controllerInfo.packageName}, playing=$playing",
             )
-            if (!MediaButtons.playMeansPause(event.keyCode, event.action, event.repeatCount, playing)) return false
-            player.pause()
+            val relayedPlayPause =
+                (event.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || event.keyCode == KeyEvent.KEYCODE_HEADSETHOOK) &&
+                    controllerInfo.controllerVersion == MediaSession.ControllerInfo.LEGACY_CONTROLLER_VERSION
+            if (!relayedPlayPause) {
+                // Another key: a pending single press goes first, in order.
+                if (event.action == KeyEvent.ACTION_DOWN) taps.flush()
+                return false
+            }
+            // Only the first key down counts; key ups and long-press repeats are consumed.
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) taps.onPress()
             return true
         }
 
